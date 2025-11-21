@@ -472,11 +472,32 @@ class InteractiveSession:
                     return
                 
                 # Search with a relevance threshold of 0.65 (fairly strict)
-                results = embeddings_mgr.search(args, top_k=15, distance_threshold=0.65)
+                results, stats = embeddings_mgr.search(
+                    args,
+                    top_k=15,
+                    distance_threshold=0.65,
+                    return_stats=True
+                )
+            
+            fallback_used = stats.get("used_fallback")
+            best_distance = stats.get("best_distance")
+            fallback_threshold = stats.get("fallback_threshold")
             
             if not results:
-                console.print(f"[yellow]No results found for '{args}'[/yellow]\n")
+                console.print(f"[yellow]No results found for '{args}'[/yellow]")
+                if best_distance is not None:
+                    console.print(
+                        f"[dim]Closest match distance was {best_distance:.3f} "
+                        f"(threshold {fallback_threshold:.2f}). Try a broader query.[/dim]\n"
+                    )
+                else:
+                    console.print()
                 return
+            
+            if fallback_used:
+                console.print(
+                    f"[dim]Showing lower-confidence matches (distance ≤ {fallback_threshold:.2f}).[/dim]\n"
+                )
             
             # Group results by type
             journals = [r for r in results if r.result_type == 'journal']

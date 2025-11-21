@@ -3,7 +3,7 @@
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple, Union
 from dataclasses import dataclass
 
 import chromadb
@@ -48,22 +48,32 @@ class EmbeddingsManager:
             path=str(config.embeddings_dir),
             settings=Settings(anonymized_telemetry=False)
         )
+        self._cosine_flag = config.embeddings_dir / ".cosine_metric"
+        self._needs_reindex_notice = False
+        
+        self._ensure_cosine_collections()
         
         # Get or create collections
-        self.journal_collection = self.chroma_client.get_or_create_collection(
+        self.journal_collection = self._get_cosine_collection(
             name="journal_entries",
-            metadata={"description": "Journal entries with embeddings"}
+            description="Journal entries with embeddings"
         )
         
-        self.task_collection = self.chroma_client.get_or_create_collection(
+        self.task_collection = self._get_cosine_collection(
             name="tasks",
-            metadata={"description": "Task embeddings"}
+            description="Task embeddings"
         )
         
-        self.project_collection = self.chroma_client.get_or_create_collection(
+        self.project_collection = self._get_cosine_collection(
             name="projects",
-            metadata={"description": "Project embeddings"}
+            description="Project embeddings"
         )
+        
+        if self._needs_reindex_notice:
+            console.print(
+                "[yellow]Search index upgraded to a better cosine distance metric. "
+                "Please run `./focus index` once to rebuild embeddings.[/yellow]"
+            )
     
     def generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for text using OpenAI API."""
@@ -162,7 +172,35 @@ class EmbeddingsManager:
             }]
         )
     
-    def search(self, query: str, top_k: int = 10, distance_threshold: float = 0.7) -> List[SearchResult]:
+    def _ensure_cosine_collections(self):
+        """Ensure all collections use cosine distance."""
+        if not self._cosine_flag.exists():
+            # Delete old collections so they can be recreated with cosine metric
+            for name in ["journal_entries", "tasks", "projects"]:
+                try:
+                    self.chroma_client.delete_collection(name)
+                except Exception:
+                    pass
+            self._needs_reindex_notice = True
+            self._cosine_flag.write_text(datetime.now().isoformat())
+    
+    def _get_cosine_collection(self, name: str, description: str):
+        """Create or get a collection configured for cosine distance."""
+        return self.chroma_client.get_or_create_collection(
+            name=name,
+            metadata={
+                "description": description,
+                "hnsw:space": "cosine"
+            }
+        )
+    
+    def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        distance_threshold: float = 0.7,
+        return_stats: bool = False
+    ) -> Union[List[SearchResult], Tuple[List[SearchResult], Dict[str, Any]]]:
         """
         Perform semantic search across all collections.
         
@@ -174,13 +212,30 @@ class EmbeddingsManager:
                                Recommended: 0.6-0.8 for good quality results
         """
         if not query.strip():
-            return []
+            return ([], {}) if return_stats else []
         
         # Generate query embedding
         query_embedding = self.generate_embedding(query)
         
         # Search across all collections
-        results = []
+        results: List[SearchResult] = []
+        stats = {
+            "best_distance": None,
+            "best_result_type": None,
+            "total_candidates": 0,
+            "used_fallback": False,
+            "fallback_threshold": None
+        }
+        fallback_threshold = min(distance_threshold + 0.2, 0.9)
+        
+        def update_stats(distances: List[float], result_type: str):
+            if not distances:
+                return
+            stats["total_candidates"] += len(distances)
+            best = distances[0]
+            if stats["best_distance"] is None or best < stats["best_distance"]:
+                stats["best_distance"] = best
+                stats["best_result_type"] = result_type
         
         # Search journals
         try:
@@ -188,15 +243,21 @@ class EmbeddingsManager:
             if journal_count > 0:
                 journal_results = self.journal_collection.query(
                     query_embeddings=[query_embedding],
-                    n_results=min(top_k, journal_count)
+                    n_results=min(top_k, journal_count),
+                    include=["documents", "metadatas", "distances"]
                 )
                 
-                if journal_results['documents'] and journal_results['documents'][0]:
-                    for i, doc in enumerate(journal_results['documents'][0]):
+                documents = journal_results.get('documents', [[]])[0]
+                metadatas = journal_results.get('metadatas', [[]])[0]
+                distances = journal_results.get('distances', [[]])[0]
+                update_stats(distances, "journal")
+                
+                if documents:
+                    for i, doc in enumerate(documents):
                         results.append(SearchResult(
                             content=doc,
-                            metadata=journal_results['metadatas'][0][i],
-                            distance=journal_results['distances'][0][i] if 'distances' in journal_results else 0.0,
+                            metadata=metadatas[i],
+                            distance=distances[i] if distances else 0.0,
                             result_type='journal'
                         ))
         except Exception as e:
@@ -208,15 +269,21 @@ class EmbeddingsManager:
             if task_count > 0:
                 task_results = self.task_collection.query(
                     query_embeddings=[query_embedding],
-                    n_results=min(top_k, task_count)
+                    n_results=min(top_k, task_count),
+                    include=["documents", "metadatas", "distances"]
                 )
                 
-                if task_results['documents'] and task_results['documents'][0]:
-                    for i, doc in enumerate(task_results['documents'][0]):
+                documents = task_results.get('documents', [[]])[0]
+                metadatas = task_results.get('metadatas', [[]])[0]
+                distances = task_results.get('distances', [[]])[0]
+                update_stats(distances, "task")
+                
+                if documents:
+                    for i, doc in enumerate(documents):
                         results.append(SearchResult(
                             content=doc,
-                            metadata=task_results['metadatas'][0][i],
-                            distance=task_results['distances'][0][i] if 'distances' in task_results else 0.0,
+                            metadata=metadatas[i],
+                            distance=distances[i] if distances else 0.0,
                             result_type='task'
                         ))
         except Exception as e:
@@ -228,29 +295,46 @@ class EmbeddingsManager:
             if project_count > 0:
                 project_results = self.project_collection.query(
                     query_embeddings=[query_embedding],
-                    n_results=min(top_k, project_count)
+                    n_results=min(top_k, project_count),
+                    include=["documents", "metadatas", "distances"]
                 )
                 
-                if project_results['documents'] and project_results['documents'][0]:
-                    for i, doc in enumerate(project_results['documents'][0]):
+                documents = project_results.get('documents', [[]])[0]
+                metadatas = project_results.get('metadatas', [[]])[0]
+                distances = project_results.get('distances', [[]])[0]
+                update_stats(distances, "project")
+                
+                if documents:
+                    for i, doc in enumerate(documents):
                         results.append(SearchResult(
                             content=doc,
-                            metadata=project_results['metadatas'][0][i],
-                            distance=project_results['distances'][0][i] if 'distances' in project_results else 0.0,
+                            metadata=metadatas[i],
+                            distance=distances[i] if distances else 0.0,
                             result_type='project'
                         ))
         except Exception as e:
             # Silently skip projects if there's an error
             pass
         
-        # Filter by distance threshold (remove poor matches)
-        results = [r for r in results if r.distance <= distance_threshold]
-        
         # Sort by distance (lower is better)
         results.sort(key=lambda x: x.distance)
         
-        # Return top_k results
-        return results[:top_k]
+        # Filter by distance threshold (remove poor matches)
+        filtered_results = [r for r in results if r.distance <= distance_threshold]
+        stats["fallback_threshold"] = distance_threshold
+        
+        # Fallback: if nothing matched, relax threshold slightly (up to fallback_threshold)
+        if not filtered_results and results:
+            stats["fallback_threshold"] = fallback_threshold
+            if stats["best_distance"] is not None and stats["best_distance"] <= fallback_threshold:
+                filtered_results = [r for r in results if r.distance <= fallback_threshold]
+                stats["used_fallback"] = True
+        
+        filtered_results = filtered_results[:top_k]
+        
+        if return_stats:
+            return filtered_results, stats
+        return filtered_results
     
     def index_all_existing_data(self):
         """Index all existing journals and tasks (one-time migration)."""
