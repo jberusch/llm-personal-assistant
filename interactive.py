@@ -176,6 +176,11 @@ class InteractiveSession:
     
     def cmd_tasks(self, args: str):
         """Show task board."""
+        # Check if GUI mode is requested
+        if args.strip().lower() == 'gui':
+            self._open_tasks_gui()
+            return
+        
         console.print()
         
         today_tasks = task_manager.get_today_tasks()
@@ -216,6 +221,34 @@ class InteractiveSession:
         # Show stats
         stats = task_manager.get_task_stats()
         console.print(f"[dim]Total: {stats['incomplete']} incomplete • {stats['completed_today']} completed today[/dim]\n")
+    
+    def _open_tasks_gui(self):
+        """Open the tasks GUI in a web browser."""
+        import webbrowser
+        import threading
+        
+        try:
+            from note_editor import start_tasks_gui
+            
+            console.print()
+            console.print("[cyan]Opening tasks GUI...[/cyan]")
+            console.print("[dim]The tasks interface will open in your browser[/dim]")
+            console.print("[dim]Press Ctrl+C here to stop the server[/dim]\n")
+            
+            # Start GUI in a thread and open browser
+            def open_browser():
+                import time
+                time.sleep(1)  # Wait for server to start
+                webbrowser.open('http://localhost:5557')
+            
+            threading.Thread(target=open_browser, daemon=True).start()
+            start_tasks_gui()
+            
+        except KeyboardInterrupt:
+            console.print("\n[cyan]Tasks GUI closed.[/cyan]\n")
+        except Exception as e:
+            console.print()
+            console.print(f"[red]Error starting tasks GUI: {e}[/red]\n")
     
     def cmd_today(self, args: str):
         """Show today's plan based on morning reflection."""
@@ -378,6 +411,39 @@ class InteractiveSession:
         except ValueError:
             console.print("[red]Invalid choice[/red]\n")
     
+    def _prompt_for_project_assignment(self) -> str:
+        """Prompt user to assign note/task to a project. Returns project_id or None."""
+        from projects import project_manager
+        
+        projects = project_manager.get_all_projects()
+        
+        if not projects:
+            return None
+        
+        # Ask if they want to assign to a project
+        assign = Prompt.ask("\nAssign to a project?", choices=["y", "n"], default="n")
+        
+        if assign == "n":
+            return None
+        
+        # Show projects
+        console.print("\n[bold]Available Projects:[/bold]")
+        for i, project in enumerate(projects, 1):
+            console.print(f"  {i}. {project.name}")
+        console.print(f"  {len(projects) + 1}. Skip")
+        
+        # Get selection
+        choice = Prompt.ask("\nSelect project number")
+        
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(projects):
+                return projects[idx].id
+        except ValueError:
+            pass
+        
+        return None
+    
     def cmd_quick_note(self, args: str):
         """Create a quick inline note (no LLM response)."""
         console.print()
@@ -386,10 +452,19 @@ class InteractiveSession:
         note_text = Prompt.ask("Note")
         
         if note_text.strip():
+            # Prompt for project assignment
+            project_id = self._prompt_for_project_assignment()
+            
             # Save as a note entry
             title = note_text[:50] + "..." if len(note_text) > 50 else note_text
-            storage.add_note_to_journal(title, note_text)
-            console.print("\n[green]✓ Note saved![/green]\n")
+            storage.add_note_to_journal(title, note_text, project_id=project_id)
+            
+            if project_id:
+                from projects import project_manager
+                project = project_manager.get_project(project_id)
+                console.print(f"\n[green]✓ Note saved and assigned to project: {project.name}[/green]\n")
+            else:
+                console.print("\n[green]✓ Note saved![/green]\n")
         else:
             console.print("[dim]Note cancelled.[/dim]\n")
     
@@ -404,7 +479,28 @@ class InteractiveSession:
             result = open_note_editor()
             
             if result:
-                console.print(f"\n[green]✓ Note saved: {result['title']}[/green]\n")
+                console.print(f"\n[green]✓ Note saved: {result['title']}[/green]")
+                
+                # Prompt for project assignment
+                project_id = self._prompt_for_project_assignment()
+                
+                if project_id:
+                    # Update the note with project_id
+                    journal = storage.load_journal()
+                    notes = journal.get("notes", [])
+                    
+                    # Find the most recent note (the one we just added)
+                    if notes:
+                        notes[-1]["project_id"] = project_id
+                        storage.save_journal(journal)
+                        
+                        from projects import project_manager
+                        project = project_manager.get_project(project_id)
+                        console.print(f"[green]✓ Assigned to project: {project.name}[/green]\n")
+                    else:
+                        console.print()
+                else:
+                    console.print()
             else:
                 console.print("\n[dim]Note editor closed without saving.[/dim]\n")
         except Exception as e:
@@ -560,8 +656,37 @@ class InteractiveSession:
             console.print(f"[red]Error during search: {e}[/red]")
             console.print(f"[dim]Make sure you've run: ./focus index[/dim]\n")
     
+    def _get_project_last_activity(self, project_id: str) -> datetime:
+        """Get the timestamp of the most recent activity for a project."""
+        from projects import project_manager
+        
+        latest = datetime.min
+        
+        # Check tasks
+        tasks = storage.load_tasks()
+        project_tasks = [t for t in tasks if t.project_id == project_id]
+        if project_tasks:
+            task_dates = [t.updated_at for t in project_tasks if t.updated_at]
+            if task_dates:
+                latest = max(latest, max(task_dates))
+        
+        # Check notes
+        project_notes = project_manager.get_project_notes(project_id)
+        if project_notes:
+            # Notes have date strings, convert them
+            for note in project_notes:
+                try:
+                    note_date = datetime.strptime(note['date'], "%Y-%m-%d")
+                    latest = max(latest, note_date)
+                except:
+                    pass
+        
+        return latest
+    
     def cmd_projects(self, args: str):
-        """Display all projects."""
+        """Display all projects with interactive selection."""
+        from projects import project_manager
+        
         console.print()
         
         projects = storage.load_projects()
@@ -571,22 +696,97 @@ class InteractiveSession:
             console.print("[dim]Try adding a task with: /add <task description>[/dim]\n")
             return
         
-        console.print("[bold blue]📁 Your Projects[/bold blue]\n")
-        
+        # Sort projects by most recent activity
+        projects_with_activity = []
         for project in projects:
-            console.print(f"[bold cyan]{project.name}[/bold cyan]")
-            if project.description:
-                console.print(f"[dim]{project.description}[/dim]")
+            last_activity = self._get_project_last_activity(project.id)
+            projects_with_activity.append((project, last_activity))
+        
+        # Sort by activity (most recent first)
+        projects_with_activity.sort(key=lambda x: x[1], reverse=True)
+        projects = [p[0] for p in projects_with_activity]
+        
+        console.print("[bold blue]📁 Select a Project[/bold blue]")
+        console.print("[dim]Use ↑/↓ arrows to navigate, Enter to open, Esc to cancel[/dim]\n")
+        
+        # Create options list with task counts
+        options = []
+        for project in projects:
+            project_tasks = [t for t in storage.load_tasks() if t.project_id == project.id and not t.completed]
+            task_count = len(project_tasks)
             
-            # Count tasks in this project
-            tasks = storage.load_tasks()
-            project_tasks = [t for t in tasks if t.project_id == project.id and not t.completed]
-            if project_tasks:
-                console.print(f"[yellow]{len(project_tasks)} active task(s)[/yellow]")
+            # Get note count
+            project_notes = project_manager.get_project_notes(project.id)
+            note_count = len(project_notes)
+            
+            option_text = f"{project.name}"
+            if task_count > 0 or note_count > 0:
+                counts = []
+                if task_count > 0:
+                    counts.append(f"{task_count} task{'s' if task_count != 1 else ''}")
+                if note_count > 0:
+                    counts.append(f"{note_count} note{'s' if note_count != 1 else ''}")
+                option_text += f" ({', '.join(counts)})"
+            
+            options.append(option_text)
+        
+        # Use pick library for arrow key navigation
+        try:
+            from pick import pick
+            
+            title = ""
+            selected_option, selected_index = pick(options, title, indicator="→")
+            
+            if selected_index is not None:
+                selected_project = projects[selected_index]
+                self._open_project_view(selected_project)
+        except ImportError:
+            # Fallback: numbered list
+            console.print("[yellow]Install 'pick' for arrow key navigation: pip install pick[/yellow]")
+            console.print("[dim]Using numbered selection instead...[/dim]\n")
+            
+            for i, (project, option_text) in enumerate(zip(projects, options), 1):
+                console.print(f"  {i}. {option_text}")
             
             console.print()
+            choice = Prompt.ask("Select project number (or press Enter to cancel)")
+            
+            if choice.strip():
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(projects):
+                        self._open_project_view(projects[idx])
+                except ValueError:
+                    console.print("[red]Invalid selection[/red]\n")
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]\n")
+    
+    def _open_project_view(self, project):
+        """Open the project view in browser."""
+        import webbrowser
+        import threading
         
         console.print()
+        console.print(f"[cyan]Opening project: {project.name}...[/cyan]")
+        console.print("[dim]A browser window will open[/dim]")
+        console.print("[dim]Press Ctrl+C here to stop the server[/dim]\n")
+        
+        try:
+            from note_editor import start_project_viewer
+            
+            # Start server in thread and open browser
+            def open_browser():
+                import time
+                time.sleep(0.8)
+                webbrowser.open(f'http://localhost:5558/project/{project.id}')
+            
+            threading.Thread(target=open_browser, daemon=True).start()
+            start_project_viewer(project.id)
+            
+        except KeyboardInterrupt:
+            console.print("\n[cyan]Project viewer closed.[/cyan]\n")
+        except Exception as e:
+            console.print(f"\n[red]Error opening project viewer: {e}[/red]\n")
     
     def cmd_stats(self, args: str):
         """Show productivity statistics."""
@@ -643,6 +843,7 @@ class InteractiveSession:
 
 ## Task Management
 - `/tasks` - View your task board (today, upcoming, inbox)
+- `/tasks gui` - Open tasks in a web GUI with checkboxes
 - `/add <task>` - Add a new task
 - `/done` - Mark a task as complete
 - `/stats` - Show productivity statistics

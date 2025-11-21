@@ -57,6 +57,11 @@ Or add tasks quickly:
 ./focus add "finish report by friday"
 ```
 
+View tasks in a GUI:
+```bash
+./focus tasks gui          # Opens web interface with checkboxes
+```
+
 ### 3. Evening (5 minutes)
 ```bash
 ./focus evening

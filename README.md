@@ -103,8 +103,11 @@ Add tasks with natural language:
 
 View your tasks:
 ```bash
-./focus tasks
+./focus tasks              # View in terminal
+./focus tasks gui          # Open web GUI with checkboxes
 ```
+
+The GUI mode opens a beautiful web interface where you can check off tasks with a single click!
 
 Mark tasks as complete:
 ```bash

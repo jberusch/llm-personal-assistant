@@ -109,6 +109,31 @@ class ProjectManager:
         
         return project_tasks
     
+    def get_project_notes(self, project_id: str):
+        """Get all notes for a project across all days."""
+        from pathlib import Path
+        notes = []
+        
+        # Scan all journal files
+        journal_dir = self.storage.journal_dir
+        for journal_file in sorted(journal_dir.glob("*.md")):
+            date_str = journal_file.stem  # YYYY-MM-DD
+            try:
+                journal = self.storage.load_journal(datetime.strptime(date_str, "%Y-%m-%d"))
+                day_notes = journal.get("notes", [])
+                
+                # Filter for this project
+                for note in day_notes:
+                    if note.get("project_id") == project_id:
+                        # Add date for context
+                        note_with_date = note.copy()
+                        note_with_date["date"] = date_str
+                        notes.append(note_with_date)
+            except Exception:
+                continue
+        
+        return notes
+    
     def delete_project(self, project_id: str, unassign_tasks: bool = True):
         """Delete a project and optionally unassign its tasks."""
         if unassign_tasks:

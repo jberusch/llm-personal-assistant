@@ -154,8 +154,40 @@ def _suggest_project_for_task(task):
 
 
 @cli.command()
-def tasks():
-    """View your task board."""
+@click.argument('mode', required=False)
+def tasks(mode):
+    """View your task board.
+    
+    Examples:
+        focus tasks        # Show tasks in terminal
+        focus tasks gui    # Open tasks in web GUI
+    """
+    # Check if GUI mode is requested
+    if mode and mode.lower() == 'gui':
+        import webbrowser
+        import threading
+        
+        try:
+            from note_editor import start_tasks_gui
+            
+            console.print("\n[cyan]Opening tasks GUI...[/cyan]")
+            console.print("[dim]Press Ctrl+C to stop the server[/dim]\n")
+            
+            # Start GUI in a thread and open browser
+            def open_browser():
+                import time
+                time.sleep(1)  # Wait for server to start
+                webbrowser.open('http://localhost:5557')
+            
+            threading.Thread(target=open_browser, daemon=True).start()
+            start_tasks_gui()
+            
+        except KeyboardInterrupt:
+            console.print("\n[cyan]Tasks GUI closed.[/cyan]\n")
+        except Exception as e:
+            console.print(f"[red]Error starting tasks GUI: {e}[/red]")
+        return
+    
     console.print()
     
     # Create task board
