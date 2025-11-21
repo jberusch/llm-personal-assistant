@@ -27,6 +27,13 @@ class Assistant:
         """Build the system prompt with context from today's morning routine."""
         base_prompt = config.get_personality()
         
+        # Add current date/time context
+        now = datetime.now()
+        date_context = f"\n\nCurrent date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}"
+        date_context += f"\nToday is: {now.strftime('%Y-%m-%d')}"
+        date_context += f"\nDay of week: {now.strftime('%A')}"
+        base_prompt += date_context
+        
         # Add morning context if available
         morning_entry = storage.get_morning_entry()
         if morning_entry:

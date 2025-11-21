@@ -13,11 +13,14 @@ class Config:
         self.config_dir = Path.home() / ".focus_assistant"
         self.config_file = self.config_dir / "config.json"
         self.tasks_file = self.config_dir / "tasks.json"
+        self.projects_file = self.config_dir / "projects.json"
         self.journal_dir = self.config_dir / "journal"
+        self.embeddings_dir = self.config_dir / "embeddings"
         
         # Ensure directories exist
         self.config_dir.mkdir(exist_ok=True)
         self.journal_dir.mkdir(exist_ok=True)
+        self.embeddings_dir.mkdir(exist_ok=True)
         
         # Load or create config
         self._config = self._load_config()
@@ -29,6 +32,7 @@ class Config:
                 return json.load(f)
         return {
             "anthropic_api_key": None,
+            "openai_api_key": None,
             "assistant_personality": "You are a focused productivity coach. Be firm but kind. Remember the user's daily goals and gently challenge distractions."
         }
     
@@ -53,6 +57,19 @@ class Config:
     def get_personality(self) -> str:
         """Get assistant personality prompt."""
         return self._config.get("assistant_personality", "")
+    
+    def get_openai_key(self) -> Optional[str]:
+        """Get OpenAI API key from config or environment."""
+        # Try config first, then environment
+        api_key = self._config.get("openai_api_key")
+        if not api_key:
+            api_key = os.environ.get("OPENAI_API_KEY")
+        return api_key
+    
+    def set_openai_key(self, api_key: str):
+        """Set OpenAI API key in config."""
+        self._config["openai_api_key"] = api_key
+        self.save()
 
 
 # Global config instance

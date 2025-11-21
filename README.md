@@ -137,13 +137,32 @@ Configure settings:
 All data is stored locally in `~/.focus_assistant/`:
 - `config.json` - Your API key and preferences
 - `tasks.json` - All your tasks
-- `journal/YYYY-MM-DD.json` - Daily journal entries with your conversations
+- `journal/YYYY-MM-DD.md` - Daily journal entries in Markdown format (Obsidian-ready!)
+
+### Obsidian Integration
+Your journals are stored as beautiful, human-readable Markdown files that work perfectly with Obsidian! See [OBSIDIAN.md](OBSIDIAN.md) for integration guide.
 
 ### Future-Proof Design
-The data structure is designed for future migration to:
+The data structure is designed for future expansion:
+- **Obsidian Integration**: ✅ Journals already in Markdown format - works today!
 - **Supabase**: For cloud sync and web interface
 - **Embeddings**: For semantic search of your past thoughts
 - **Web UI**: All methods are structured to easily add a web frontend
+
+### Edit Your Journal
+```bash
+./focus log                     # Open today's journal in web editor
+./focus log 2025-11-20          # Open specific date in web editor
+```
+
+The `/log` command opens a beautiful web-based markdown editor where you can view and edit your entire daily journal with live preview.
+
+### Migrating from JSON
+If you have existing JSON journals, run:
+```bash
+python3 migrate_to_markdown.py
+```
+This converts all journals to Markdown and archives the JSON files.
 
 ## Workflow
 

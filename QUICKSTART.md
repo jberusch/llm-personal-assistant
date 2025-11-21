@@ -112,8 +112,23 @@ All your data is stored locally at:
   ├── config.json           # API key, settings
   ├── tasks.json            # All tasks
   └── journal/
-      └── YYYY-MM-DD.json   # Daily entries
+      └── YYYY-MM-DD.md     # Daily journals (Markdown!)
 ```
+
+**Obsidian Users:** Your journals are already in Obsidian-ready format! See `OBSIDIAN.md` for integration guide.
+
+## Edit Your Journal
+
+```bash
+./focus log                     # Open today's journal in web editor
+./focus log 2025-11-20          # Open specific date in web editor
+```
+
+Opens a full-featured web editor with:
+- Live markdown preview
+- Editable view of your entire day
+- Morning/evening reflections, chat history, and notes
+- Save with Cmd/Ctrl+S
 
 ## Troubleshooting
 
