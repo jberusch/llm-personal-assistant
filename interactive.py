@@ -225,30 +225,13 @@ class InteractiveSession:
     def _open_tasks_gui(self):
         """Open the tasks GUI in a web browser."""
         import webbrowser
-        import threading
         
-        try:
-            from note_editor import start_tasks_gui
-            
-            console.print()
-            console.print("[cyan]Opening tasks GUI...[/cyan]")
-            console.print("[dim]The tasks interface will open in your browser[/dim]")
-            console.print("[dim]Press Ctrl+C here to stop the server[/dim]\n")
-            
-            # Start GUI in a thread and open browser
-            def open_browser():
-                import time
-                time.sleep(1)  # Wait for server to start
-                webbrowser.open('http://localhost:5557')
-            
-            threading.Thread(target=open_browser, daemon=True).start()
-            start_tasks_gui()
-            
-        except KeyboardInterrupt:
-            console.print("\n[cyan]Tasks GUI closed.[/cyan]\n")
-        except Exception as e:
-            console.print()
-            console.print(f"[red]Error starting tasks GUI: {e}[/red]\n")
+        console.print()
+        console.print("[cyan]Opening tasks in browser...[/cyan]")
+        console.print("[dim]Make sure the web app is running: cd web && npm run dev[/dim]\n")
+        
+        webbrowser.open('http://localhost:5173/tasks')
+        console.print("[green]✓ Opened tasks view[/green]\n")
     
     def cmd_today(self, args: str):
         """Show today's plan based on morning reflection."""
@@ -764,29 +747,13 @@ class InteractiveSession:
     def _open_project_view(self, project):
         """Open the project view in browser."""
         import webbrowser
-        import threading
         
         console.print()
         console.print(f"[cyan]Opening project: {project.name}...[/cyan]")
-        console.print("[dim]A browser window will open[/dim]")
-        console.print("[dim]Press Ctrl+C here to stop the server[/dim]\n")
+        console.print("[dim]Make sure the web app is running: cd web && npm run dev[/dim]\n")
         
-        try:
-            from note_editor import start_project_viewer
-            
-            # Start server in thread and open browser
-            def open_browser():
-                import time
-                time.sleep(0.8)
-                webbrowser.open(f'http://localhost:5558/project/{project.id}')
-            
-            threading.Thread(target=open_browser, daemon=True).start()
-            start_project_viewer(project.id)
-            
-        except KeyboardInterrupt:
-            console.print("\n[cyan]Project viewer closed.[/cyan]\n")
-        except Exception as e:
-            console.print(f"\n[red]Error opening project viewer: {e}[/red]\n")
+        webbrowser.open(f'http://localhost:5173/projects/{project.id}')
+        console.print(f"[green]✓ Opened {project.name}[/green]\n")
     
     def cmd_stats(self, args: str):
         """Show productivity statistics."""

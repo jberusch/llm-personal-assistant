@@ -870,13 +870,16 @@ def start_project_viewer(project_id):
     from flask import Flask, render_template_string, jsonify, abort
     from projects import project_manager
     from tasks import task_manager
+    from storage import storage
     
     app = Flask(__name__)
     
-    # Disable Flask logging
+    # Enable Flask logging for debugging
     import logging
     log = logging.getLogger('werkzeug')
-    log.setLevel(logging.ERROR)
+    log.setLevel(logging.INFO)
+    
+    print(f"\n[DEBUG] Starting project viewer for project_id: {project_id}")
     
     @app.route('/project/<pid>')
     def view_project(pid):
@@ -893,46 +896,52 @@ def start_project_viewer(project_id):
     @app.route('/api/project/<pid>/data')
     def get_project_data(pid):
         """Get all project data (tasks and notes)."""
-        project = project_manager.get_project(pid)
-        if not project:
-            return jsonify({'error': 'Project not found'}), 404
-        
-        # Get tasks
-        tasks_data = []
-        all_tasks = storage.load_tasks()
-        project_tasks = [t for t in all_tasks if t.project_id == pid]
-        
-        for task in project_tasks:
-            tasks_data.append({
-                'id': task.id,
-                'text': task.text,
-                'completed': task.completed,
-                'due_date': task.due_date.strftime('%Y-%m-%d') if task.due_date else None,
-                'created_at': task.created_at.strftime('%Y-%m-%d %I:%M %p'),
-                'completed_at': task.completed_at.strftime('%Y-%m-%d %I:%M %p') if task.completed_at else None
+        try:
+            project = project_manager.get_project(pid)
+            if not project:
+                return jsonify({'error': 'Project not found'}), 404
+            
+            # Get tasks
+            tasks_data = []
+            all_tasks = storage.load_tasks()
+            project_tasks = [t for t in all_tasks if t.project_id == pid]
+            
+            for task in project_tasks:
+                tasks_data.append({
+                    'id': task.id,
+                    'text': task.text,
+                    'completed': task.completed,
+                    'due_date': task.due_date.strftime('%Y-%m-%d') if task.due_date else None,
+                    'created_at': task.created_at.strftime('%Y-%m-%d %I:%M %p'),
+                    'completed_at': task.completed_at.strftime('%Y-%m-%d %I:%M %p') if task.completed_at else None
+                })
+            
+            # Get notes
+            notes_data = []
+            project_notes = project_manager.get_project_notes(pid)
+            
+            for note in project_notes:
+                notes_data.append({
+                    'title': note['title'],
+                    'content': note['content'],
+                    'timestamp': note['timestamp'],
+                    'date': note['date']
+                })
+            
+            return jsonify({
+                'project': {
+                    'name': project.name,
+                    'description': project.description,
+                    'color': project.color
+                },
+                'tasks': tasks_data,
+                'notes': notes_data
             })
-        
-        # Get notes
-        notes_data = []
-        project_notes = project_manager.get_project_notes(pid)
-        
-        for note in project_notes:
-            notes_data.append({
-                'title': note['title'],
-                'content': note['content'],
-                'timestamp': note['timestamp'],
-                'date': note['date']
-            })
-        
-        return jsonify({
-            'project': {
-                'name': project.name,
-                'description': project.description,
-                'color': project.color
-            },
-            'tasks': tasks_data,
-            'notes': notes_data
-        })
+        except Exception as e:
+            import traceback
+            print(f"Error in get_project_data: {e}")
+            print(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
     
     @app.route('/api/tasks/<task_id>/complete', methods=['POST'])
     def complete_task(task_id):
@@ -1264,19 +1273,22 @@ PROJECT_VIEW_TEMPLATE = '''
         </div>
     </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         const projectId = '{{ project_id }}';
         let projectData = {};
         
         async function loadProjectData() {
             try {
-                const response = await fetch(`/api/project/${projectId}/data`);
+                console.log('Loading project data for:', projectId);
+                const response = await fetch('/api/project/' + projectId + '/data');
+                console.log('Response status:', response.status);
                 projectData = await response.json();
+                console.log('Project data loaded:', projectData);
                 renderProjectData();
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('content').style.display = 'grid';
             } catch (error) {
+                console.error('Error loading project:', error);
                 document.getElementById('loading').textContent = 'Error loading project: ' + error.message;
             }
         }
@@ -1299,29 +1311,33 @@ PROJECT_VIEW_TEMPLATE = '''
             }
             
             // Sort: incomplete first, then by date
-            tasks.sort((a, b) => {
+            tasks.sort(function(a, b) {
                 if (a.completed !== b.completed) return a.completed ? 1 : -1;
                 return new Date(b.created_at) - new Date(a.created_at);
             });
             
-            taskList.innerHTML = tasks.map(task => `
-                <div class="task-item ${task.completed ? 'completed' : ''}" data-task-id="${task.id}">
-                    <input 
-                        type="checkbox" 
-                        class="task-checkbox"
-                        ${task.completed ? 'checked disabled' : ''}
-                        onchange="completeTask('${task.id}')"
-                    >
-                    <div class="task-details">
-                        <div class="task-text">${escapeHtml(task.text)}</div>
-                        <div class="task-meta">
-                            <span>Created ${task.created_at}</span>
-                            ${task.due_date ? `<span class="task-due">Due ${task.due_date}</span>` : ''}
-                            ${task.completed_at ? `<span>Completed ${task.completed_at}</span>` : ''}
-                        </div>
-                    </div>
-                </div>
-            `).join('');
+            console.log('Rendering', tasks.length, 'tasks');
+            
+            taskList.innerHTML = tasks.map(function(task) {
+                var html = '<div class="task-item ' + (task.completed ? 'completed' : '') + '" data-task-id="' + task.id + '">';
+                html += '<input type="checkbox" class="task-checkbox" ';
+                if (task.completed) {
+                    html += 'checked disabled ';
+                }
+                html += 'onchange="completeTask(\\'' + task.id + '\\')">';
+                html += '<div class="task-details">';
+                html += '<div class="task-text">' + escapeHtml(task.text) + '</div>';
+                html += '<div class="task-meta">';
+                html += '<span>Created ' + task.created_at + '</span>';
+                if (task.due_date) {
+                    html += '<span class="task-due">Due ' + task.due_date + '</span>';
+                }
+                if (task.completed_at) {
+                    html += '<span>Completed ' + task.completed_at + '</span>';
+                }
+                html += '</div></div></div>';
+                return html;
+            }).join('');
         }
         
         function renderNotes() {
@@ -1336,21 +1352,22 @@ PROJECT_VIEW_TEMPLATE = '''
             }
             
             // Sort by date, most recent first
-            notes.sort((a, b) => {
-                const dateA = new Date(a.date + ' ' + a.timestamp);
-                const dateB = new Date(b.date + ' ' + b.timestamp);
+            notes.sort(function(a, b) {
+                var dateA = new Date(a.date + ' ' + a.timestamp);
+                var dateB = new Date(b.date + ' ' + b.timestamp);
                 return dateB - dateA;
             });
             
-            noteList.innerHTML = notes.map(note => `
-                <div class="note-item">
-                    <div class="note-header">
-                        <div class="note-title">${escapeHtml(note.title)}</div>
-                        <div class="note-date">${note.date} ${note.timestamp}</div>
-                    </div>
-                    <div class="note-content">${renderMarkdown(note.content)}</div>
-                </div>
-            `).join('');
+            noteList.innerHTML = notes.map(function(note) {
+                var html = '<div class="note-item">';
+                html += '<div class="note-header">';
+                html += '<div class="note-title">' + escapeHtml(note.title) + '</div>';
+                html += '<div class="note-date">' + note.date + ' ' + note.timestamp + '</div>';
+                html += '</div>';
+                html += '<div class="note-content">' + renderMarkdown(note.content) + '</div>';
+                html += '</div>';
+                return html;
+            }).join('');
         }
         
         function updateStats() {
@@ -1391,11 +1408,16 @@ PROJECT_VIEW_TEMPLATE = '''
         
         function renderMarkdown(text) {
             // Simple markdown rendering for basic formatting
+            var boldRegex = /\*\*(.+?)\*\*/g;
+            var italicRegex = /\*(.+?)\*/g;
+            var codeRegex = /`(.+?)`/g;
+            var newlineRegex = /\n/g;
+            
             return text
-                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                .replace(/\*(.+?)\*/g, '<em>$1</em>')
-                .replace(/`(.+?)`/g, '<code>$1</code>')
-                .replace(/\n/g, '<br>');
+                .replace(boldRegex, '<strong>$1</strong>')
+                .replace(italicRegex, '<em>$1</em>')
+                .replace(codeRegex, '<code>$1</code>')
+                .replace(newlineRegex, '<br>');
         }
         
         function escapeHtml(text) {
@@ -1405,7 +1427,12 @@ PROJECT_VIEW_TEMPLATE = '''
         }
         
         // Load project data on page load
-        loadProjectData();
+        console.log('Page loaded, starting to load project data...');
+        
+        // Use setTimeout to ensure page is fully loaded
+        setTimeout(function() {
+            loadProjectData();
+        }, 100);
         
         // Refresh every 30 seconds
         setInterval(loadProjectData, 30000);
