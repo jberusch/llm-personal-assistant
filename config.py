@@ -33,6 +33,8 @@ class Config:
         return {
             "anthropic_api_key": None,
             "openai_api_key": None,
+            "google_search_api_key": None,
+            "google_search_cx_id": None,
             "assistant_personality": "You're helpful assistant, focused on minimalism and focus. You respond with concise, clear answers. You are honest when you don't know the answer. You don't editorialize.",
             "ai_triage_enabled": True
         }
@@ -79,6 +81,30 @@ class Config:
     def set_ai_triage_enabled(self, enabled: bool):
         """Enable or disable AI inbox triage."""
         self._config["ai_triage_enabled"] = bool(enabled)
+        self.save()
+    
+    def get_google_search_key(self) -> Optional[str]:
+        """Get Google Search API key from config or environment."""
+        api_key = self._config.get("google_search_api_key")
+        if not api_key:
+            api_key = os.environ.get("GOOGLE_SEARCH_API_KEY")
+        return api_key
+    
+    def set_google_search_key(self, api_key: str):
+        """Set Google Search API key in config."""
+        self._config["google_search_api_key"] = api_key
+        self.save()
+    
+    def get_google_search_cx(self) -> Optional[str]:
+        """Get Google Custom Search Engine ID from config or environment."""
+        cx_id = self._config.get("google_search_cx_id")
+        if not cx_id:
+            cx_id = os.environ.get("GOOGLE_SEARCH_CX_ID")
+        return cx_id
+    
+    def set_google_search_cx(self, cx_id: str):
+        """Set Google Custom Search Engine ID in config."""
+        self._config["google_search_cx_id"] = cx_id
         self.save()
 
 

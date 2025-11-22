@@ -29,6 +29,38 @@ def create_app():
             'inbox': [task_to_dict(t) for t in inbox_tasks]
         })
     
+    @app.route('/api/tasks', methods=['POST', 'OPTIONS'])
+    def create_task():
+        """Create a new task."""
+        if request.method == 'OPTIONS':
+            return '', 204
+        try:
+            data = request.get_json()
+            text = data.get('text', '').strip()
+            project_id = data.get('project_id')
+            due_date_str = data.get('due_date')
+            
+            if not text:
+                return jsonify({'error': 'Task text is required'}), 400
+            
+            # Parse due date if provided
+            due_date = None
+            if due_date_str:
+                try:
+                    due_date = datetime.strptime(due_date_str, '%Y-%m-%d')
+                except ValueError:
+                    return jsonify({'error': 'Invalid due date format. Use YYYY-MM-DD'}), 400
+            
+            # Create task
+            task = task_manager.add_task(text, due_date=due_date, project_id=project_id)
+            
+            return jsonify({
+                'success': True,
+                'task': task_to_dict(task)
+            })
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
     @app.route('/api/tasks/<task_id>/complete', methods=['POST', 'OPTIONS'])
     def complete_task(task_id):
         """Mark a task as complete."""

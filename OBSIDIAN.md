@@ -52,6 +52,19 @@ tags: [daily, journal]
 [Your evening review]
 ```
 
+## Task Board Export (Manual Refresh)
+
+Run the export command whenever you want your current task board inside the vault:
+
+```bash
+./focus export obsidian                      # Generates TASKS.md
+./focus export obsidian --include-completed  # Adds up to 20 recent completions
+```
+
+This writes `~/.focus_assistant/journal/TASKS.md`, which rides along with the same symlink/rsync as your daily notes. Treat it as **read-only** in Obsidian—re-run the command to refresh instead of editing the file directly.
+
+Each task entry includes Dataview-friendly metadata (`status::`, `id::`, etc.) so you can query or visualize tasks however you like inside Obsidian.
+
 ## Obsidian Features
 
 ### YAML Frontmatter

@@ -7,6 +7,8 @@ export default function Tasks() {
   const [tasks, setTasks] = useState({ today: [], upcoming: [], inbox: [] })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [newTaskText, setNewTaskText] = useState('')
+  const [addingTask, setAddingTask] = useState(false)
 
   useEffect(() => {
     loadTasks()
@@ -40,6 +42,33 @@ export default function Tasks() {
     }
   }
 
+  async function handleAddTask(e) {
+    e.preventDefault()
+    
+    if (!newTaskText.trim()) return
+    
+    setAddingTask(true)
+    
+    try {
+      const response = await fetch(`${API_URL}/api/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: newTaskText.trim()
+        })
+      })
+      
+      if (!response.ok) throw new Error('Failed to add task')
+      
+      setNewTaskText('')
+      await loadTasks()
+    } catch (err) {
+      alert('Error adding task: ' + err.message)
+    } finally {
+      setAddingTask(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="container">
@@ -66,6 +95,24 @@ export default function Tasks() {
       </div>
 
       <div className="content">
+        <form onSubmit={handleAddTask} className="add-task-form">
+          <input
+            type="text"
+            className="add-task-input"
+            placeholder="Add a new task..."
+            value={newTaskText}
+            onChange={(e) => setNewTaskText(e.target.value)}
+            disabled={addingTask}
+          />
+          <button
+            type="submit"
+            className="add-task-button"
+            disabled={addingTask || !newTaskText.trim()}
+          >
+            {addingTask ? 'Adding...' : 'Add Task'}
+          </button>
+        </form>
+        
         <TaskList
           title="📌 TODAY"
           tasks={tasks.today}

@@ -61,7 +61,8 @@ class InteractiveSession:
             '/reply': self._email_reply,
             '/cleanup': self._email_cleanup,
             '/archive': self._email_archive,
-            '/search': self.cmd_search,
+            '/search': self.cmd_search_router,
+            '/places': self.cmd_places,
             '/projects': self.cmd_projects,
             '/tracker': self.cmd_tracker,
             '/stats': self.cmd_stats,
@@ -91,7 +92,8 @@ class InteractiveSession:
             '/reply': 'Legacy alias: draft and send a reply',
             '/archive': 'Legacy alias: archive emails',
             '/cleanup': 'Legacy alias: bulk clean unwanted emails',
-            '/search': 'Search your notes, tasks, and projects',
+            '/search': 'Search the web or your history (/search web <query> or /search history <query>)',
+            '/places': 'Find nearby places (cafes, restaurants, etc.)',
             '/projects': 'View all your projects',
             '/tracker': 'View tracker history (e.g., /tracker sleep)',
             '/stats': 'Show productivity statistics',
@@ -1349,11 +1351,35 @@ Request: "{request}"
                 continue
         return None
     
-    def cmd_search(self, args: str):
+    def cmd_search_router(self, args: str):
+        """Route search commands to web or history search."""
+        args = args.strip()
+        if not args:
+            console.print("[yellow]Usage:[/yellow]")
+            console.print("  /search web <query> [results:N] - Search DuckDuckGo (default 10 results)")
+            console.print("  /search history <query> - Search your notes, tasks, and projects")
+            console.print("\n[dim]Examples:[/dim]")
+            console.print("  /search web python tutorials results:5")
+            console.print("  /search history things to read\n")
+            return
+        
+        parts = args.split(None, 1)
+        subcommand = parts[0].lower()
+        remainder = parts[1] if len(parts) > 1 else ""
+        
+        if subcommand == 'web':
+            self.cmd_search_web(remainder)
+        elif subcommand == 'history':
+            self.cmd_search_history(remainder)
+        else:
+            # Default to history search for backward compatibility
+            self.cmd_search_history(args)
+    
+    def cmd_search_history(self, args: str):
         """Perform semantic search across journals, tasks, and projects."""
         if not args.strip():
-            console.print("[yellow]Usage: /search <query>[/yellow]")
-            console.print("[dim]Example: /search things to read[/dim]\n")
+            console.print("[yellow]Usage: /search history <query>[/yellow]")
+            console.print("[dim]Example: /search history things to read[/dim]\n")
             return
         
         console.print()
@@ -1456,6 +1482,496 @@ Request: "{request}"
         except Exception as e:
             console.print(f"[red]Error during search: {e}[/red]")
             console.print(f"[dim]Make sure you've run: ./focus index[/dim]\n")
+    
+    def _open_url_in_terminal_or_browser(self, url: str, title: str = "result"):
+        """Open URL in terminal browser (w3m/lynx/elinks) or fallback to system browser."""
+        import subprocess
+        import shutil
+        
+        console.print()
+        console.print(f"[cyan]Opening: {title}[/cyan]")
+        console.print(f"[dim]{url}[/dim]\n")
+        
+        # Try terminal browsers in order of preference
+        if shutil.which('w3m'):
+            subprocess.run(['w3m', url])
+        elif shutil.which('lynx'):
+            subprocess.run(['lynx', url])
+        elif shutil.which('elinks'):
+            subprocess.run(['elinks', url])
+        else:
+            console.print("[dim]No terminal browser found (w3m/lynx/elinks). Opening in system browser...[/dim]")
+            import webbrowser
+            webbrowser.open(url)
+        
+        console.print()  # Clean spacing after browser exits
+    
+    def cmd_search_web(self, args: str):
+        """Search DuckDuckGo and display results with arrow key navigation."""
+        if not args.strip():
+            console.print("[yellow]Usage: /search web <query> [results:N][/yellow]")
+            console.print("[dim]Example: /search web python tutorials results:5[/dim]\n")
+            return
+        
+        # Parse arguments - look for results:N parameter
+        max_results = 10  # default
+        query = args.strip()
+        
+        # Check if results parameter is present
+        import re
+        results_match = re.search(r'\bresults:(\d+)\b', query, re.IGNORECASE)
+        if results_match:
+            max_results = min(int(results_match.group(1)), 25)  # cap at 25
+            # Remove the results parameter from query
+            query = re.sub(r'\s*\bresults:\d+\b\s*', ' ', query, flags=re.IGNORECASE).strip()
+        
+        if not query:
+            console.print("[red]Please provide a search query.[/red]\n")
+            return
+        
+        console.print()
+        
+        # Check if Google Search is configured (preferred)
+        google_search_key = config.get_google_search_key()
+        google_search_cx = config.get_google_search_cx()
+        
+        if google_search_key and google_search_cx:
+            # Use Google Custom Search API (more reliable)
+            self._search_with_google(query, max_results)
+            return
+        
+        # Fall back to DuckDuckGo
+        console.print("[dim]Tip: Configure Google Search for better results: /config[/dim]\n")
+        
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            console.print("[red]duckduckgo_search library not installed.[/red]")
+            console.print("[dim]Install it with: pip install duckduckgo_search[/dim]\n")
+            return
+        
+        # Try search with automatic retry on rate limit
+        results = []
+        max_retries = 3
+        retry_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    with console.status(f"[cyan]Retrying search (attempt {attempt + 1}/{max_retries})...[/cyan]"):
+                        import time
+                        time.sleep(retry_delay * attempt)  # Exponential backoff
+                        ddgs = DDGS()
+                        results = list(ddgs.text(query, max_results=max_results))
+                else:
+                    with console.status(f"[cyan]Searching DuckDuckGo for: {query}...[/cyan]"):
+                        ddgs = DDGS()
+                        results = list(ddgs.text(query, max_results=max_results))
+                
+                # If we got here, search succeeded
+                break
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                
+                if "ratelimit" in error_msg or "rate limit" in error_msg:
+                    if attempt < max_retries - 1:
+                        # Try again after delay
+                        continue
+                    else:
+                        # Final attempt failed
+                        console.print(f"[yellow]⚠️  DuckDuckGo rate limit reached[/yellow]")
+                        console.print(f"[dim]DuckDuckGo limits automated searches. Try again in 1-2 minutes.[/dim]")
+                        console.print(f"[dim]Tip: Use /search history to search your local notes instead.[/dim]\n")
+                        return
+                elif "timeout" in error_msg:
+                    console.print(f"[yellow]Search timed out.[/yellow]")
+                    console.print(f"[dim]Please check your internet connection and try again.[/dim]\n")
+                    return
+                else:
+                    console.print(f"[red]Error during web search: {e}[/red]\n")
+                    return
+        
+        if not results:
+            console.print(f"[yellow]No results found for '{query}'[/yellow]\n")
+            return
+        
+        console.print(f"[bold cyan]🌐 Web Search Results for: {query}[/bold cyan]\n")
+
+        # Prepare options for pick library
+        options = []
+        for i, result in enumerate(results, 1):
+            title = result.get('title', 'No title')
+            # Truncate title if too long
+            if len(title) > 80:
+                title = title[:77] + "..."
+            options.append(f"{title}")
+
+        # Use pick library for arrow key navigation
+        try:
+            from pick import pick
+
+            title = "Use ↑/↓ arrows to navigate, Enter to open in browser, Esc to cancel"
+            selected_option, selected_index = pick(options, title, indicator="→")
+
+            if selected_index is not None:
+                selected_result = results[selected_index]
+                url = selected_result.get('href', selected_result.get('link', ''))
+
+                if url:
+                    self._open_url_in_terminal_or_browser(url, selected_result.get('title', 'result'))
+                else:
+                    console.print("[red]No URL found for this result.[/red]\n")
+
+        except ImportError:
+            # Fallback: numbered list
+            console.print("[yellow]Install 'pick' for arrow key navigation: pip install pick[/yellow]")
+            console.print("[dim]Using numbered selection instead...[/dim]\n")
+
+            for i, result in enumerate(results, 1):
+                title = result.get('title', 'No title')
+                snippet = result.get('body', result.get('snippet', ''))
+                url = result.get('href', result.get('link', ''))
+
+                console.print(f"[bold cyan]{i}. {title}[/bold cyan]")
+                console.print(f"[dim]{url}[/dim]")
+                if snippet:
+                    # Truncate snippet
+                    if len(snippet) > 150:
+                        snippet = snippet[:147] + "..."
+                    console.print(f"{snippet}")
+                console.print()
+
+            choice = Prompt.ask("Select result number to open (or press Enter to cancel)", default="")
+
+            if choice.strip():
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(results):
+                        url = results[idx].get('href', results[idx].get('link', ''))
+                        if url:
+                            self._open_url_in_terminal_or_browser(url, results[idx].get('title', 'result'))
+                        else:
+                            console.print("[red]No URL found for this result.[/red]\n")
+                    else:
+                        console.print("[red]Invalid selection[/red]\n")
+                except ValueError:
+                    console.print("[red]Invalid selection[/red]\n")
+    
+    def _search_with_google(self, query: str, max_results: int):
+        """Search using Google Custom Search API."""
+        try:
+            from google_search import get_google_search_client
+            
+            # Get configured client
+            google_client = get_google_search_client(
+                config.get_google_search_key(),
+                config.get_google_search_cx()
+            )
+            
+            if not google_client:
+                console.print("[red]Google Search not properly configured.[/red]\n")
+                return
+            
+            with console.status(f"[cyan]Searching Google for: {query}...[/cyan]"):
+                # Google CSE API limits to 10 results per request
+                results = google_client.search(query, min(max_results, 10))
+            
+            if not results:
+                console.print(f"[yellow]No results found for '{query}'[/yellow]\n")
+                return
+            
+            console.print(f"[bold cyan]🌐 Web Search Results for: {query}[/bold cyan]")
+            console.print(f"[dim]Powered by Google Custom Search[/dim]\n")
+            
+            # Prepare options for pick library
+            options = []
+            for i, result in enumerate(results, 1):
+                title = result.get('title', 'No title')
+                # Truncate title if too long
+                if len(title) > 80:
+                    title = title[:77] + "..."
+                options.append(f"{title}")
+            
+            # Use pick library for arrow key navigation
+            try:
+                from pick import pick
+                
+                title = "Use ↑/↓ arrows to navigate, Enter to open in browser, Esc to cancel"
+                selected_option, selected_index = pick(options, title, indicator="→")
+                
+                if selected_index is not None:
+                    selected_result = results[selected_index]
+                    url = selected_result.get('href', selected_result.get('link', ''))
+                    
+                    if url:
+                        import webbrowser
+                        console.print()
+                        console.print(f"[cyan]Opening: {selected_result.get('title', 'result')}[/cyan]")
+                        console.print(f"[dim]{url}[/dim]\n")
+                        webbrowser.open(url)
+                    else:
+                        console.print("[red]No URL found for this result.[/red]\n")
+            
+            except ImportError:
+                # Fallback: numbered list
+                console.print("[yellow]Install 'pick' for arrow key navigation: pip install pick[/yellow]")
+                console.print("[dim]Using numbered selection instead...[/dim]\n")
+                
+                for i, result in enumerate(results, 1):
+                    title = result.get('title', 'No title')
+                    snippet = result.get('body', result.get('snippet', ''))
+                    url = result.get('href', result.get('link', ''))
+                    
+                    console.print(f"[bold cyan]{i}. {title}[/bold cyan]")
+                    console.print(f"[dim]{url}[/dim]")
+                    if snippet:
+                        # Truncate snippet
+                        if len(snippet) > 150:
+                            snippet = snippet[:147] + "..."
+                        console.print(f"{snippet}")
+                    console.print()
+                
+                choice = Prompt.ask("Select result number to open (or press Enter to cancel)", default="")
+                
+                if choice.strip():
+                    try:
+                        idx = int(choice) - 1
+                        if 0 <= idx < len(results):
+                            url = results[idx].get('href', results[idx].get('link', ''))
+                            if url:
+                                import webbrowser
+                                console.print()
+                                console.print(f"[cyan]Opening: {results[idx].get('title', 'result')}[/cyan]\n")
+                                webbrowser.open(url)
+                            else:
+                                console.print("[red]No URL found for this result.[/red]\n")
+                        else:
+                            console.print("[red]Invalid selection[/red]\n")
+                    except ValueError:
+                        console.print("[red]Invalid selection[/red]\n")
+        
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "quota" in error_msg or "limit" in error_msg:
+                console.print(f"[yellow]Google Search API quota exceeded.[/yellow]")
+                console.print(f"[dim]You've used your 100 free searches today. Try again tomorrow.[/dim]")
+                console.print(f"[dim]Or use DuckDuckGo: remove Google keys with /config[/dim]\n")
+            elif "authentication" in error_msg or "403" in error_msg:
+                console.print(f"[red]Google Search authentication failed.[/red]")
+                console.print(f"[dim]Check your API key and CX ID with /config[/dim]\n")
+            else:
+                console.print(f"[red]Google Search error: {e}[/red]\n")
+    
+    def cmd_places(self, args: str):
+        """Find nearby places using Google Places API."""
+        if not args.strip():
+            console.print("[yellow]Usage: /places <query>[/yellow]")
+            console.print("[dim]Examples:[/dim]")
+            console.print("[dim]  /places cafe nearby[/dim]")
+            console.print("[dim]  /places pizza in hayes valley[/dim]")
+            console.print("[dim]  /places bars on fillmore[/dim]\n")
+            return
+        
+        console.print()
+        
+        # Check if Google API key is configured
+        google_api_key = config.get_google_search_key()
+        
+        if not google_api_key:
+            console.print("[yellow]⚠️  Google Places requires a Google API key[/yellow]")
+            console.print("[dim]You can use the same API key from Google Custom Search.[/dim]")
+            console.print("[dim]Run /config to set up your Google API key.[/dim]\n")
+            return
+        
+        try:
+            from google_places import get_google_places_client, Place
+            
+            # Get or create client
+            places_client = get_google_places_client(google_api_key)
+            
+            if not places_client:
+                console.print("[red]Failed to initialize Places client.[/red]\n")
+                return
+            
+            # Search for places
+            with console.status(f"[cyan]Searching for: {args}...[/cyan]"):
+                places = places_client.text_search(args, max_results=10)
+            
+            if not places:
+                console.print(f"[yellow]No places found for '{args}'[/yellow]\n")
+                return
+            
+            console.print(f"[bold cyan]📍 Places Near You[/bold cyan]\n")
+            
+            # Prepare options for pick library
+            options = []
+            for i, place in enumerate(places, 1):
+                # Build display string
+                display = f"{place.name}"
+                
+                # Add rating if available
+                if place.rating:
+                    stars = "⭐" * int(round(place.rating))
+                    display += f" {stars} {place.rating}"
+                    if place.user_ratings_total:
+                        display += f" ({place.user_ratings_total} reviews)"
+                
+                # Truncate if too long
+                if len(display) > 80:
+                    display = display[:77] + "..."
+                
+                options.append(display)
+            
+            # Use pick library for arrow key navigation
+            try:
+                from pick import pick
+                
+                title = "Use ↑/↓ arrows to navigate, Enter for details, Esc to cancel"
+                selected_option, selected_index = pick(options, title, indicator="→")
+                
+                if selected_index is not None:
+                    selected_place = places[selected_index]
+                    self._show_place_details(selected_place, places_client)
+            
+            except ImportError:
+                # Fallback: numbered list
+                console.print("[yellow]Install 'pick' for arrow key navigation: pip install pick[/yellow]")
+                console.print("[dim]Using numbered selection instead...[/dim]\n")
+                
+                for i, place in enumerate(places, 1):
+                    # Show name and rating
+                    console.print(f"[bold cyan]{i}. {place.name}[/bold cyan]")
+                    
+                    if place.rating:
+                        stars = "⭐" * int(round(place.rating))
+                        review_text = f" ({place.user_ratings_total} reviews)" if place.user_ratings_total else ""
+                        console.print(f"   {stars} {place.rating}{review_text}")
+                    
+                    # Show address
+                    address = place.address or place.vicinity or "Address unknown"
+                    console.print(f"   [dim]📍 {address}[/dim]")
+                    
+                    # Show status and price
+                    status_parts = []
+                    if place.opening_hours:
+                        status = place.get_status_string()
+                        status_parts.append(status)
+                    if place.price_level is not None:
+                        status_parts.append(place.get_price_string())
+                    if status_parts:
+                        console.print(f"   [dim]{' • '.join(status_parts)}[/dim]")
+                    
+                    console.print()
+                
+                choice = Prompt.ask("Select place number for details (or press Enter to cancel)", default="")
+                
+                if choice.strip():
+                    try:
+                        idx = int(choice) - 1
+                        if 0 <= idx < len(places):
+                            selected_place = places[idx]
+                            self._show_place_details(selected_place, places_client)
+                        else:
+                            console.print("[red]Invalid selection[/red]\n")
+                    except ValueError:
+                        console.print("[red]Invalid selection[/red]\n")
+        
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "quota" in error_msg or "limit" in error_msg:
+                console.print(f"[yellow]Google Places API quota exceeded.[/yellow]")
+                console.print(f"[dim]Free tier is $200/month (~5,000-10,000 searches). Try again tomorrow.[/dim]\n")
+            elif "authentication" in error_msg or "api" in error_msg or "key" in error_msg:
+                console.print(f"[red]Google Places API error.[/red]")
+                console.print(f"[dim]Make sure Places API is enabled in Google Cloud Console.[/dim]")
+                console.print(f"[dim]See GOOGLE_PLACES_SETUP.md for instructions.[/dim]\n")
+            else:
+                console.print(f"[red]Error searching places: {e}[/red]\n")
+    
+    def _show_place_details(self, place: 'Place', places_client):
+        """Show detailed information about a place."""
+        console.print()
+        
+        # Get full details
+        with console.status(f"[cyan]Loading details for {place.name}...[/cyan]"):
+            try:
+                full_place = places_client.get_place_details(place.place_id)
+            except:
+                full_place = place  # Fallback to basic info
+        
+        # Display details
+        from rich.panel import Panel
+        
+        details = f"[bold cyan]{full_place.name}[/bold cyan]\n\n"
+        
+        # Rating
+        if full_place.rating:
+            stars = "⭐" * int(round(full_place.rating))
+            review_text = f" ({full_place.user_ratings_total} reviews)" if full_place.user_ratings_total else ""
+            details += f"{stars} [bold]{full_place.rating}[/bold] stars{review_text}\n"
+        
+        # Address
+        if full_place.address:
+            details += f"📍 {full_place.address}\n"
+        
+        # Phone
+        if full_place.phone_number:
+            details += f"📞 {full_place.phone_number}\n"
+        
+        # Hours
+        if full_place.opening_hours:
+            status = "[green]Open now[/green]" if full_place.opening_hours.get('open_now') else "[red]Closed[/red]"
+            details += f"🕐 {status}\n"
+            
+            # Show hours if available
+            if 'weekday_text' in full_place.opening_hours:
+                details += "\n[bold]Hours:[/bold]\n"
+                for day_hours in full_place.opening_hours['weekday_text']:
+                    details += f"  {day_hours}\n"
+        
+        # Price level
+        if full_place.price_level is not None:
+            details += f"💰 {full_place.get_price_string()}\n"
+        
+        # Website
+        if full_place.website:
+            details += f"🌐 {full_place.website}\n"
+        
+        console.print(Panel(details, border_style="cyan"))
+        
+        # Action menu
+        console.print("\n[bold]Actions:[/bold]")
+        console.print("  1. Open in Google Maps")
+        console.print("  2. Save to notes")
+        console.print("  3. Back to results")
+        
+        choice = Prompt.ask("Select action", choices=["1", "2", "3"], default="3")
+        
+        if choice == "1":
+            import webbrowser
+            maps_url = full_place.get_google_maps_url()
+            console.print(f"\n[cyan]Opening in Google Maps...[/cyan]\n")
+            webbrowser.open(maps_url)
+        
+        elif choice == "2":
+            # Save to notes
+            note_text = f"**{full_place.name}**\n"
+            if full_place.rating:
+                note_text += f"Rating: {full_place.rating} ⭐\n"
+            if full_place.address:
+                note_text += f"Address: {full_place.address}\n"
+            if full_place.phone_number:
+                note_text += f"Phone: {full_place.phone_number}\n"
+            if full_place.website:
+                note_text += f"Website: {full_place.website}\n"
+            note_text += f"Maps: {full_place.get_google_maps_url()}\n"
+            
+            storage.add_note_to_journal(note_text)
+            console.print(f"\n[green]✓ Saved to notes![/green]\n")
+        
+        else:
+            console.print()
     
     def _get_project_last_activity(self, project_id: str) -> datetime:
         """Get the timestamp of the most recent activity for a project."""
@@ -1611,23 +2127,54 @@ Request: "{request}"
         console.print()
         console.print("[bold cyan]⚙️  Configuration[/bold cyan]\n")
         
-        current_key = config.get_api_key()
-        if current_key:
-            masked_key = current_key[:8] + "..." + current_key[-4:]
-            console.print(f"Current API key: {masked_key}")
-            change = Prompt.ask("Change API key?", choices=["y", "n"], default="n")
-            if change == "n":
-                console.print()
-                return
+        # Show current configuration
+        current_anthropic = config.get_api_key()
+        current_google_key = config.get_google_search_key()
+        current_google_cx = config.get_google_search_cx()
         
-        console.print("\n[dim]Get your API key from: https://console.anthropic.com/[/dim]")
-        new_key = Prompt.ask("Enter your Anthropic API key")
-        
-        if new_key:
-            config.set_api_key(new_key)
-            console.print("\n[green]✓ API key saved![/green]\n")
+        console.print("[bold]Current Configuration:[/bold]")
+        if current_anthropic:
+            masked = current_anthropic[:8] + "..." + current_anthropic[-4:]
+            console.print(f"  Anthropic API: {masked}")
         else:
-            console.print("[yellow]No changes made.[/yellow]\n")
+            console.print(f"  Anthropic API: [yellow]Not configured[/yellow]")
+        
+        if current_google_key and current_google_cx:
+            masked_key = current_google_key[:8] + "..." + current_google_key[-4:]
+            console.print(f"  Google Search: {masked_key} [green]✓[/green]")
+        else:
+            console.print(f"  Google Search: [yellow]Not configured[/yellow] (recommended)")
+        
+        console.print("\n[bold]What would you like to configure?[/bold]")
+        console.print("  1. Anthropic API key (required)")
+        console.print("  2. Google Search (for /search web - 100 free searches/day)")
+        console.print("  3. Exit")
+        
+        choice = Prompt.ask("Select option", choices=["1", "2", "3"], default="3")
+        
+        if choice == "1":
+            console.print("\n[dim]Get your API key from: https://console.anthropic.com/[/dim]")
+            new_key = Prompt.ask("Enter your Anthropic API key")
+            if new_key:
+                config.set_api_key(new_key)
+                console.print("\n[green]✓ Anthropic API key saved![/green]\n")
+        
+        elif choice == "2":
+            console.print("\n[dim]See GOOGLE_SEARCH_SETUP.md for setup instructions[/dim]")
+            console.print("[dim]Get API key from: https://console.cloud.google.com/[/dim]")
+            console.print("[dim]Create search engine at: https://programmablesearchengine.google.com/[/dim]\n")
+            
+            new_key = Prompt.ask("Enter your Google Search API key (or press Enter to skip)", default="")
+            if new_key:
+                new_cx = Prompt.ask("Enter your Google Search CX ID")
+                if new_cx:
+                    config.set_google_search_key(new_key)
+                    config.set_google_search_cx(new_cx)
+                    console.print("\n[green]✓ Google Search configured![/green]")
+                    console.print("[dim]Now /search web will use Google instead of DuckDuckGo[/dim]\n")
+        
+        else:
+            console.print()
     
     def cmd_help(self, args: str):
         """Show help information."""
@@ -1665,7 +2212,9 @@ Request: "{request}"
 - `/email archive <index|id...>` - Archive specific emails (add --delete to trash)
 
 ## Search & Projects
-- `/search <query>` - Search your notes, tasks, and projects semantically
+- `/search web <query> [results:N]` - Search DuckDuckGo (default 10 results, max 25)
+- `/search history <query>` - Search your notes, tasks, and projects semantically
+- `/places <query>` - Find nearby places (cafes, restaurants, bars, etc.)
 - `/projects` - View all your projects (use arrows to navigate)
 
 ## Notes & Writing
@@ -1684,7 +2233,9 @@ Just type naturally without a slash command to chat with the assistant!
 - "remind me tomorrow to call mom" → creates a task
 - "what should I focus on today?" → get advice
 - "I'm feeling overwhelmed" → get support
-- "/search things to read" → find all reading-related notes
+- "/search web python tutorials results:5" → search the web
+- "/search history things to read" → find all reading-related notes
+- "/places cafe nearby" → find nearby cafes with ratings and hours
 """
         console.print(Panel(Markdown(help_text), title="Help", border_style="cyan"))
         console.print()

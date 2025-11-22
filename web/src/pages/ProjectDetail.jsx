@@ -10,6 +10,8 @@ export default function ProjectDetail() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [newTaskText, setNewTaskText] = useState('')
+  const [addingTask, setAddingTask] = useState(false)
 
   useEffect(() => {
     loadProject()
@@ -40,6 +42,34 @@ export default function ProjectDetail() {
       await loadProject()
     } catch (err) {
       alert('Error completing task: ' + err.message)
+    }
+  }
+
+  async function handleAddTask(e) {
+    e.preventDefault()
+    
+    if (!newTaskText.trim()) return
+    
+    setAddingTask(true)
+    
+    try {
+      const response = await fetch(`${API_URL}/api/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: newTaskText.trim(),
+          project_id: projectId
+        })
+      })
+      
+      if (!response.ok) throw new Error('Failed to add task')
+      
+      setNewTaskText('')
+      await loadProject()
+    } catch (err) {
+      alert('Error adding task: ' + err.message)
+    } finally {
+      setAddingTask(false)
     }
   }
 
@@ -81,6 +111,24 @@ export default function ProjectDetail() {
       <div className="project-detail-content">
         <div className="project-column">
           <h2 className="column-title">✅ Tasks</h2>
+          
+          <form onSubmit={handleAddTask} className="add-task-form">
+            <input
+              type="text"
+              className="add-task-input"
+              placeholder="Add a new task to this project..."
+              value={newTaskText}
+              onChange={(e) => setNewTaskText(e.target.value)}
+              disabled={addingTask}
+            />
+            <button
+              type="submit"
+              className="add-task-button"
+              disabled={addingTask || !newTaskText.trim()}
+            >
+              {addingTask ? 'Adding...' : 'Add Task'}
+            </button>
+          </form>
           
           {activeTasks.length > 0 && (
             <div className="task-list">

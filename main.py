@@ -433,7 +433,9 @@ cli.add_command(chat_cmd, name='chat')
 @cli.command()
 @click.option('--key', '--anthropic-key', help='Your Anthropic API key')
 @click.option('--openai-key', help='Your OpenAI API key (for embeddings)')
-def config_cmd(key, openai_key):
+@click.option('--google-search-key', help='Your Google Search API key')
+@click.option('--google-search-cx', help='Your Google Custom Search Engine ID')
+def config_cmd(key, openai_key, google_search_key, google_search_cx):
     """Configure the assistant (API keys, etc.)."""
     if key:
         config.set_api_key(key)
@@ -443,7 +445,15 @@ def config_cmd(key, openai_key):
         config.set_openai_key(openai_key)
         console.print("[green]✓ OpenAI API key saved![/green]")
     
-    if key or openai_key:
+    if google_search_key:
+        config.set_google_search_key(google_search_key)
+        console.print("[green]✓ Google Search API key saved![/green]")
+    
+    if google_search_cx:
+        config.set_google_search_cx(google_search_cx)
+        console.print("[green]✓ Google Search CX ID saved![/green]")
+    
+    if key or openai_key or google_search_key or google_search_cx:
         return
     
     # Interactive configuration
@@ -492,9 +502,61 @@ def config_cmd(key, openai_key):
             console.print("[green]✓ OpenAI API key saved![/green]")
     
     console.print()
+    
+    # Google Search API Key
+    current_google = config.get_google_search_key()
+    current_google_cx = config.get_google_search_cx()
+    
+    if current_google and current_google_cx:
+        masked_key = current_google[:8] + "..." + current_google[-4:]
+        masked_cx = current_google_cx[:8] + "..." if len(current_google_cx) > 12 else current_google_cx
+        console.print(f"Google Search API key: {masked_key}")
+        console.print(f"Google Search CX ID: {masked_cx}")
+        change = Prompt.ask("Change Google Search credentials?", choices=["y", "n"], default="n")
+        if change == "y":
+            console.print("\n[dim]See GOOGLE_SEARCH_SETUP.md for instructions[/dim]")
+            new_key = Prompt.ask("Enter your Google Search API key")
+            new_cx = Prompt.ask("Enter your Google Search CX ID")
+            if new_key and new_cx:
+                config.set_google_search_key(new_key)
+                config.set_google_search_cx(new_cx)
+                console.print("[green]✓ Google Search credentials saved![/green]")
+    else:
+        console.print("[yellow]No Google Search configured (recommended for /search web)[/yellow]")
+        console.print("[dim]Google Search has 100 free searches/day (much better than DuckDuckGo)[/dim]")
+        setup = Prompt.ask("Set up Google Search now?", choices=["y", "n"], default="n")
+        if setup == "y":
+            console.print("\n[dim]See GOOGLE_SEARCH_SETUP.md for detailed setup instructions[/dim]")
+            new_key = Prompt.ask("Enter your Google Search API key (or press Enter to skip)", default="")
+            if new_key:
+                new_cx = Prompt.ask("Enter your Google Search CX ID")
+                if new_cx:
+                    config.set_google_search_key(new_key)
+                    config.set_google_search_cx(new_cx)
+                    console.print("[green]✓ Google Search credentials saved![/green]")
+    
+    console.print()
 
 
 cli.add_command(config_cmd, name='config')
+
+
+@cli.command()
+@click.argument('target', type=click.Choice(['obsidian']), required=False, default='obsidian')
+@click.option(
+    '--include-completed',
+    is_flag=True,
+    help='Include a recently-completed section in the export.',
+)
+def export(target, include_completed):
+    """Export data for use in other tools (currently Obsidian tasks)."""
+    if target == 'obsidian':
+        from obsidian_export import export_tasks_to_markdown
+
+        output_path = export_tasks_to_markdown(include_completed=include_completed)
+        console.print(
+            f"\n[green]✓ Exported tasks to Obsidian markdown:[/green] {output_path}\n"
+        )
 
 
 @cli.command()
