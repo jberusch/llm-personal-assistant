@@ -33,7 +33,8 @@ class Config:
         return {
             "anthropic_api_key": None,
             "openai_api_key": None,
-            "assistant_personality": "You're helpful assistant, focused on minimalism and focus. You respond with concise, clear answers. You are honest when you don't know the answer. You don't editorialize."
+            "assistant_personality": "You're helpful assistant, focused on minimalism and focus. You respond with concise, clear answers. You are honest when you don't know the answer. You don't editorialize.",
+            "ai_triage_enabled": True
         }
     
     def save(self):
@@ -69,6 +70,15 @@ class Config:
     def set_openai_key(self, api_key: str):
         """Set OpenAI API key in config."""
         self._config["openai_api_key"] = api_key
+        self.save()
+
+    def is_ai_triage_enabled(self) -> bool:
+        """Return whether AI inbox triage is enabled."""
+        return self._config.get("ai_triage_enabled", True)
+
+    def set_ai_triage_enabled(self, enabled: bool):
+        """Enable or disable AI inbox triage."""
+        self._config["ai_triage_enabled"] = bool(enabled)
         self.save()
 
 

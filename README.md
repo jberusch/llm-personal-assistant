@@ -151,21 +151,25 @@ The assistant automatically knows your calendar and includes it when answering q
 Once your Google integration is set up (same steps as calendar), you can triage email without leaving the CLI:
 
 ```bash
-./focus inbox           # Show unread Gmail messages
-./focus email 1         # Read the first unread email
-./focus reply 1         # Draft & send a reply with AI
-./focus archive 1 2 3   # Archive multiple emails
-./focus cleanup         # Bulk archive newsletter-style emails
+./focus email inbox           # Show unread Gmail messages
+./focus email read 1          # Read the first staged email
+./focus email reply 1         # Draft & send a reply with AI
+./focus email archive 1 2 3   # Archive specific emails
+./focus email cleanup         # Bulk archive newsletter-style emails
+./focus email cleanup "from:wefunder newer_than:7d"   # Stage query (max 25)
 ```
 
 Inside the interactive mode:
 
 ```
-> /inbox
-> /email 2
-> /reply 2
-> /cleanup
+> /email inbox
+> /email read 2
+> /email reply 2
+> /email cleanup
+> /email cleanup all emails from Wefunder this month
 ```
+
+Cleanup remembers the senders you keep and (optionally) runs a fast triage pass with Claude 3.5 Sonnet so obvious "keep" emails are highlighted before you confirm.
 
 You may need to delete `~/.focus_assistant/google_token.pickle` and re-run `./focus calendar` once so the new Gmail permissions are applied.
 

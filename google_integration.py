@@ -364,23 +364,54 @@ class GoogleIntegration:
                     )
                     .execute()
                 )
-                payload = full.get('payload', {})
-                headers = self._headers_to_dict(payload.get('headers', []))
-                from_name, from_email = parseaddr(headers.get('from', ''))
-                summaries.append(
-                    {
-                        'id': full['id'],
-                        'threadId': full.get('threadId'),
-                        'subject': headers.get('subject', '(No subject)'),
-                        'from_name': from_name or from_email or "Unknown sender",
-                        'from_email': from_email,
-                        'date': headers.get('date', ''),
-                        'snippet': full.get('snippet', '').strip(),
-                    }
-                )
+                summaries.append(self._build_message_summary(full))
             return summaries
         except HttpError as error:
             print(f"Gmail error: {error}")
+            return []
+
+    def search_emails(self, query: str, max_results: int = 25) -> List[Dict[str, Any]]:
+        query = query.strip()
+        if not query:
+            return []
+        try:
+            self._ensure_gmail_service()
+        except FileNotFoundError:
+            raise
+        except Exception as error:
+            print(f"An error occurred: {error}")
+            return []
+
+        try:
+            response = (
+                self.gmail_service.users()
+                .messages()
+                .list(
+                    userId='me',
+                    q=query,
+                    labelIds=['INBOX'],
+                    maxResults=max(1, min(max_results, 50)),
+                )
+                .execute()
+            )
+            messages = response.get('messages', [])
+            summaries: List[Dict[str, Any]] = []
+            for msg_meta in messages:
+                full = (
+                    self.gmail_service.users()
+                    .messages()
+                    .get(
+                        userId='me',
+                        id=msg_meta['id'],
+                        format='metadata',
+                        metadataHeaders=['Subject', 'From', 'Date'],
+                    )
+                    .execute()
+                )
+                summaries.append(self._build_message_summary(full))
+            return summaries
+        except HttpError as error:
+            print(f"Gmail search error: {error}")
             return []
 
     def get_email(self, message_id: str) -> Optional[Dict[str, Any]]:
@@ -519,6 +550,40 @@ class GoogleIntegration:
     # ------------------------------------------------------------------ #
     # Parsing helpers
     # ------------------------------------------------------------------ #
+    def bulk_delete(self, message_ids: Sequence[str]) -> int:
+        if not message_ids:
+            return 0
+        try:
+            self._ensure_gmail_service()
+        except FileNotFoundError:
+            raise
+        except Exception as error:
+            print(f"An error occurred: {error}")
+            return 0
+
+        deleted = 0
+        for msg_id in message_ids:
+            try:
+                self.gmail_service.users().messages().trash(userId='me', id=msg_id).execute()
+                deleted += 1
+            except HttpError as error:
+                print(f"Gmail delete error: {error}")
+        return deleted
+
+    def _build_message_summary(self, full: Dict[str, Any]) -> Dict[str, Any]:
+        payload = full.get('payload', {})
+        headers = self._headers_to_dict(payload.get('headers', []))
+        from_name, from_email = parseaddr(headers.get('from', ''))
+        return {
+            'id': full['id'],
+            'threadId': full.get('threadId'),
+            'subject': headers.get('subject', '(No subject)'),
+            'from_name': from_name or from_email or "Unknown sender",
+            'from_email': from_email,
+            'date': headers.get('date', ''),
+            'snippet': full.get('snippet', '').strip(),
+        }
+
     def _headers_to_dict(self, headers: List[Dict[str, str]]) -> Dict[str, str]:
         return {h['name'].lower(): h['value'] for h in headers if 'name' in h and 'value' in h}
 

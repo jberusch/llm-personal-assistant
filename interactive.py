@@ -1,5 +1,7 @@
 """Interactive REPL-style interface for Focus Assistant."""
 
+import json
+
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.panel import Panel
@@ -13,6 +15,7 @@ from prompt_toolkit.styles import Style as PromptStyle
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
+from anthropic import Anthropic
 
 from assistant import Assistant
 from tasks import task_manager
@@ -21,6 +24,7 @@ from storage import storage
 from config import config
 
 console = Console()
+AI_TRIAGE_MODEL = "claude-3-5-haiku-latest"
 
 # Try to import Google integrations (may not be configured)
 try:
@@ -49,11 +53,12 @@ class InteractiveSession:
             '/log': self.cmd_log,
             '/calendar': self.cmd_calendar,
             '/schedule': self.cmd_schedule,
-            '/inbox': self.cmd_inbox,
             '/email': self.cmd_email,
-            '/reply': self.cmd_reply,
-            '/archive': self.cmd_archive_email,
-            '/cleanup': self.cmd_cleanup_inbox,
+            # Legacy shortcuts (still supported)
+            '/inbox': self._email_inbox,
+            '/reply': self._email_reply,
+            '/cleanup': self._email_cleanup,
+            '/archive': self._email_archive,
             '/search': self.cmd_search,
             '/projects': self.cmd_projects,
             '/stats': self.cmd_stats,
@@ -76,11 +81,11 @@ class InteractiveSession:
             '/log': 'Open daily journal in web editor',
             '/calendar': 'View calendar events',
             '/schedule': 'Create a calendar event',
-            '/inbox': 'View unread Gmail messages',
-            '/email': 'Read a specific email',
-            '/reply': 'Draft and send a reply',
-            '/archive': 'Archive or mark emails as read',
-            '/cleanup': 'Bulk clean unwanted emails',
+            '/email': 'Email utilities (/email inbox/read/reply/cleanup)',
+            '/inbox': 'Legacy alias: view unread Gmail messages',
+            '/reply': 'Legacy alias: draft and send a reply',
+            '/archive': 'Legacy alias: archive emails',
+            '/cleanup': 'Legacy alias: bulk clean unwanted emails',
             '/search': 'Search your notes, tasks, and projects',
             '/projects': 'View all your projects',
             '/stats': 'Show productivity statistics',
@@ -717,7 +722,37 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
         
         console.print()
 
-    def cmd_inbox(self, args: str):
+    def cmd_email(self, args: str):
+        """Group command for email actions."""
+        args = args.strip()
+        if not args or args.lower() in {'help', '-h', '--help'}:
+            self._show_email_help()
+            return
+        
+        parts = args.split(None, 1)
+        subcommand = parts[0].lower()
+        remainder = parts[1] if len(parts) > 1 else ""
+        
+        dispatch = {
+            'inbox': self._email_inbox,
+            'list': self._email_inbox,
+            'read': self._email_read,
+            'open': self._email_read,
+            'reply': self._email_reply,
+            'cleanup': self._email_cleanup,
+            'stage': self._email_cleanup,
+            'archive': self._email_archive,
+        }
+        
+        handler = dispatch.get(subcommand)
+        if not handler:
+            console.print(f"[yellow]Unknown email subcommand: {subcommand}[/yellow]\n")
+            self._show_email_help()
+            return
+        
+        handler(remainder)
+
+    def _email_inbox(self, args: str):
         """List unread Gmail messages."""
         if not self._check_google_ready():
             return
@@ -760,7 +795,7 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
         console.print(table)
         console.print("[dim]Use /email 1 or /reply 1 to read or respond.[/dim]\n")
 
-    def cmd_email(self, args: str):
+    def _email_read(self, args: str):
         """Read a specific email."""
         ref = args.strip()
         if not ref:
@@ -791,7 +826,7 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
         ))
         console.print()
 
-    def cmd_reply(self, args: str):
+    def _email_reply(self, args: str):
         """Draft and send a reply."""
         ref = args.strip()
         if not ref:
@@ -854,80 +889,149 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
         else:
             console.print("[red]Failed to send email.[/red]\n")
 
-    def cmd_archive_email(self, args: str):
-        """Archive one or more emails."""
-        refs = args.strip().split()
+    def _email_archive(self, args: str):
+        """Archive or delete one or more emails."""
+        tokens = args.strip().split()
+        delete_mode = False
+        refs: List[str] = []
+        for token in tokens:
+            if token in {'--delete', '-d'}:
+                delete_mode = True
+            else:
+                refs.append(token)
         if not refs:
-            console.print("[yellow]Usage: /archive <index_or_id> [more...] [/yellow]\n")
+            console.print("[yellow]Usage: /email archive <index_or_id> [more...] [--delete][/yellow]\n")
             return
         
         if not self._check_google_ready():
             return
         
-        archived = 0
+        processed = 0
         for ref in refs:
             summary = self._resolve_email_reference(ref)
             if not summary:
                 console.print(f"[red]Email '{ref}' not found, skipping.[/red]")
                 continue
-            google_integration.archive_email(summary['id'])
-            archived += 1
+            if delete_mode:
+                google_integration.delete_email(summary['id'])
+            else:
+                google_integration.archive_email(summary['id'])
+            processed += 1
         
-        console.print(f"[green]Archived {archived} email(s).[/green]\n")
+        verb = "Deleted" if delete_mode else "Archived"
+        console.print(f"[green]{verb} {processed} email(s).[/green]\n")
 
-    def cmd_cleanup_inbox(self, args: str):
-        """Suggest bulk cleanup for newsletters."""
+    def _email_cleanup(self, args: str):
+        """Cleanup newsletters or staged query results."""
         if not self._check_google_ready():
             return
         
-        console.print("\n[cyan]Scanning inbox for newsletters...[/cyan]")
-        try:
-            emails = google_integration.list_unread_emails(max_results=50)
-        except Exception as e:
-            console.print(f"[red]Error scanning inbox: {e}[/red]\n")
-            return
+        args = args.strip()
+        action = 'archive'
+        source_desc = ''
         
-        newsletters = [
-            email for email in emails
-            if not google_integration.should_keep_sender(email.get('from_email', ''))
-            and self._looks_like_newsletter(email)
-        ]
-        if not newsletters:
-            console.print("[green]Inbox looks good! No obvious newsletters detected.[/green]\n")
-            return
+        if args:
+            console.print(f"\n[cyan]Staging cleanup query:[/cyan] {args}")
+            stage = self._stage_query_cleanup(args)
+            if not stage:
+                return
+            newsletters = stage['emails']
+            action = stage['action']
+            source_desc = stage.get('summary', '')
+        else:
+            console.print("\n[cyan]Scanning inbox for newsletters...[/cyan]")
+            try:
+                newsletters = self._detect_newsletter_candidates()
+            except Exception as e:
+                console.print(f"[red]Error scanning inbox: {e}[/red]\n")
+                return
+            if not newsletters:
+                console.print("[green]Inbox looks good! No obvious newsletters detected.[/green]\n")
+                return
+        
+        for idx, email in enumerate(newsletters, 1):
+            email['_list_index'] = idx
+        
+        ai_keep_indices: Set[int] = set()
+        if config.is_ai_triage_enabled():
+            triage_map = self._ai_triage_emails(newsletters)
+            if triage_map:
+                for email in newsletters:
+                    decision = triage_map.get(email['id'])
+                    if decision:
+                        email['_ai_decision'] = decision.get('decision')
+                        email['_ai_reason'] = decision.get('reason', '')
+                ai_keep_indices = {
+                    email['_list_index']
+                    for email in newsletters
+                    if email.get('_ai_decision') == 'keep'
+                }
         
         table = Table(show_header=True, header_style="bold magenta")
         table.add_column("#", style="dim", width=3)
         table.add_column("From", style="cyan")
         table.add_column("Subject", style="white")
+        table.add_column("Reason", style="dim")
         
-        for idx, email in enumerate(newsletters, 1):
-            table.add_row(str(idx), email['from_name'], email['subject'])
+        for email in newsletters:
+            table.add_row(
+                str(email['_list_index']),
+                email['from_name'],
+                email['subject'],
+                self._format_cleanup_reason(email)
+            )
         
         console.print(table)
+        if source_desc:
+            console.print(f"[dim]Query: {source_desc}[/dim]")
+        if ai_keep_indices:
+            listed = ", ".join(str(i) for i in sorted(ai_keep_indices))
+            console.print(f"[dim]AI suggests keeping: {listed}[/dim]")
+        
+        index_map = {email['_list_index']: email for email in newsletters}
+        
+        auto_keep_indices: Set[int] = set()
+        if ai_keep_indices:
+            auto_keep_confirm = Prompt.ask(
+                "Keep the AI-suggested emails?",
+                choices=['y', 'n'],
+                default='y'
+            )
+            if auto_keep_confirm.lower() == 'y':
+                auto_keep_indices = set(ai_keep_indices)
+                for idx in auto_keep_indices:
+                    if idx in index_map:
+                        google_integration.remember_sender(index_map[idx].get('from_email', ''))
+                console.print("[dim]Saved those senders so they won't show up again.[/dim]")
         
         skip_input = Prompt.ask(
-            "Enter numbers to keep (e.g., 1,3) or press Enter to archive all",
+            "Enter numbers to keep (e.g., 1,3) or press Enter to continue",
             default=""
         ).strip()
-        skip_indices: Set[int] = set()
+        manual_skip_indices: Set[int] = set()
         if skip_input:
-            skip_indices = self._parse_index_list(skip_input, len(newsletters))
-            if skip_indices:
-                for idx in sorted(skip_indices):
-                    email = newsletters[idx - 1]
+            manual_skip_indices = self._parse_index_list(skip_input, len(newsletters))
+            for idx in manual_skip_indices:
+                email = index_map.get(idx)
+                if email:
                     google_integration.remember_sender(email.get('from_email', ''))
-                newsletters = [
-                    email for i, email in enumerate(newsletters, 1) if i not in skip_indices
-                ]
-                console.print("[dim]Got it — I'll remember those senders for next time.[/dim]")
+            if manual_skip_indices:
+                console.print("[dim]Thanks! I'll remember those senders for next time.[/dim]")
+        
+        skip_indices = auto_keep_indices | manual_skip_indices
+        if skip_indices:
+            newsletters = [
+                email for email in newsletters
+                if email['_list_index'] not in skip_indices
+            ]
         
         if not newsletters:
             console.print("[yellow]No emails selected for cleanup.[/yellow]\n")
             return
         
+        verb = "Delete" if action == 'delete' else "Archive"
         confirm = Prompt.ask(
-            f"Archive {len(newsletters)} newsletter(s)?",
+            f"{verb} {len(newsletters)} email(s)?",
             choices=['y', 'n'],
             default='y'
         )
@@ -935,8 +1039,13 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
             console.print("[yellow]No changes made.[/yellow]\n")
             return
         
-        google_integration.bulk_archive([email['id'] for email in newsletters])
-        console.print(f"[green]✓ Archived {len(newsletters)} email(s).[/green]\n")
+        ids = [email['id'] for email in newsletters]
+        if action == 'delete':
+            deleted = google_integration.bulk_delete(ids)
+            console.print(f"[green]✓ Deleted {deleted} email(s).[/green]\n")
+        else:
+            archived = google_integration.bulk_archive(ids)
+            console.print(f"[green]✓ Archived {archived} email(s).[/green]\n")
 
     # ------------------------------------------------------------------
     # Google helpers
@@ -954,6 +1063,18 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
             console.print("[dim]Run `focus calendar` once to connect your account.[/dim]\n")
             return False
         return True
+
+    def _show_email_help(self):
+        console.print("""
+[bold]Email Commands:[/bold]
+- `/email inbox [count]` – Show unread Gmail messages
+- `/email read <index|id>` – Read a specific email
+- `/email reply <index|id>` – Draft & send a reply with AI
+- `/email cleanup` – Run smart newsletter cleanup
+- `/email cleanup <natural query>` – Stage a Gmail search (max 25) for cleanup
+- `/email archive <index|id...>` – Archive specific emails
+""")
+        console.print("[dim]Examples: /email cleanup all emails from wefunder this week[/dim]\n")
 
     def _resolve_email_reference(self, ref: str) -> Optional[Dict[str, Any]]:
         ref = ref.strip()
@@ -977,21 +1098,7 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
             return None
 
     def _looks_like_newsletter(self, email_summary: Dict[str, Any]) -> bool:
-        subject = (email_summary.get('subject') or '').lower()
-        sender = (email_summary.get('from_email') or '').lower()
-        snippet = (email_summary.get('snippet') or '').lower()
-        if google_integration.should_keep_sender(sender):
-            return False
-        newsletter_keywords = ['newsletter', 'digest', 'update', 'sale', 'offer', 'unsubscribe']
-        sender_keywords = ['noreply', 'no-reply', 'notifications', 'mailer']
-
-        if any(word in subject for word in newsletter_keywords):
-            return True
-        if any(word in snippet for word in newsletter_keywords):
-            return True
-        if any(keyword in sender for keyword in sender_keywords):
-            return True
-        return False
+        return self._newsletter_reason(email_summary) is not None
 
     def _parse_index_list(self, raw: str, max_index: int) -> Set[int]:
         indices: Set[int] = set()
@@ -1007,6 +1114,202 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
             else:
                 console.print(f"[red]{idx} is out of range (1-{max_index}).[/red]")
         return indices
+
+    def _newsletter_reason(self, email_summary: Dict[str, Any]) -> Optional[str]:
+        if not GOOGLE_AVAILABLE or google_integration is None:
+            return None
+        sender = (email_summary.get('from_email') or '').lower()
+        if google_integration.should_keep_sender(sender):
+            return None
+        subject = (email_summary.get('subject') or '').lower()
+        snippet = (email_summary.get('snippet') or '').lower()
+        newsletter_keywords = ['newsletter', 'digest', 'update', 'sale', 'offer', 'unsubscribe']
+        sender_keywords = ['noreply', 'no-reply', 'notifications', 'mailer']
+
+        for word in newsletter_keywords:
+            if word in subject:
+                return f"subject contains '{word}'"
+        for word in newsletter_keywords:
+            if word in snippet:
+                return f"snippet mentions '{word}'"
+        for keyword in sender_keywords:
+            if keyword in sender:
+                return f"sender looks automated ('{keyword}')"
+        if sender.endswith('@mailchimp.com') or sender.endswith('@sendgrid.net'):
+            return "sent via bulk mailer"
+        return None
+
+    def _detect_newsletter_candidates(self) -> List[Dict[str, Any]]:
+        emails = google_integration.list_unread_emails(max_results=50)
+        candidates: List[Dict[str, Any]] = []
+        for email in emails:
+            reason = self._newsletter_reason(email)
+            if reason:
+                entry = dict(email)
+                entry['_cleanup_reason'] = reason
+                candidates.append(entry)
+        return candidates
+
+    def _stage_query_cleanup(self, request: str) -> Optional[Dict[str, Any]]:
+        parsed = self._build_email_query(request)
+        if not parsed:
+            console.print("[red]Could not understand that cleanup request.[/red]\n")
+            return None
+        gmail_query = parsed.get('gmail_query', '').strip()
+        if not gmail_query:
+            console.print("[red]Cleanup query cannot be empty.[/red]\n")
+            return None
+        max_results = min(25, max(1, int(parsed.get('max_results', 25))))
+        action = parsed.get('action', 'archive').lower()
+        if action not in {'archive', 'delete'}:
+            action = 'archive'
+        emails = google_integration.search_emails(gmail_query, max_results=max_results)
+        if not emails:
+            console.print("[yellow]No emails matched that query.[/yellow]\n")
+            return None
+        for email in emails:
+            email['_cleanup_reason'] = f"query: {gmail_query}"
+        return {'emails': emails, 'action': action, 'summary': gmail_query}
+
+    def _build_email_query(self, request: str) -> Optional[Dict[str, Any]]:
+        request = request.strip()
+        if not request:
+            return None
+        if self.assistant is None:
+            self.assistant = Assistant()
+        prompt = f"""
+You convert natural language cleanup requests into Gmail search instructions.
+Return ONLY JSON with these fields:
+{{
+  "gmail_query": "<Gmail search syntax>",
+  "max_results": 25,
+  "action": "archive"
+}}
+
+Rules:
+- Use Gmail query operators (from:, subject:, label:, newer_than:, older_than:, etc.).
+- Default max_results to 25 and never exceed 25.
+- Default action to "archive" unless the user clearly says delete/trash/remove.
+- Always focus on inbox messages unless the user explicitly says otherwise.
+
+Request: "{request}"
+"""
+        response = self.assistant.ask_question(prompt)
+        data = self._extract_json_object(response) or {}
+        gmail_query = (data.get('gmail_query') or request).strip()
+        max_results = int(data.get('max_results', 25))
+        action = (data.get('action') or 'archive').lower()
+        if action not in {'archive', 'delete'}:
+            action = 'archive'
+        return {
+            'gmail_query': gmail_query,
+            'max_results': max_results,
+            'action': action,
+        }
+
+    def _format_cleanup_reason(self, email: Dict[str, Any]) -> str:
+        ai_decision = email.get('_ai_decision')
+        ai_reason = email.get('_ai_reason')
+        rule_reason = email.get('_cleanup_reason', 'newsletter detected')
+        if ai_decision == 'keep':
+            return f"AI keep: {ai_reason or 'looks important'}"
+        if ai_decision == 'archive':
+            return f"AI archive: {ai_reason or rule_reason}"
+        return f"Rule: {rule_reason}"
+
+    def _ai_triage_emails(self, emails: List[Dict[str, Any]]) -> Dict[str, Dict[str, str]]:
+        if not emails or not config.is_ai_triage_enabled():
+            return {}
+        api_key = config.get_api_key()
+        if not api_key:
+            return {}
+        client = Anthropic(api_key=api_key)
+        decisions: Dict[str, Dict[str, str]] = {}
+        batch_size = 5
+        for start in range(0, len(emails), batch_size):
+            batch = emails[start:start + batch_size]
+            payload = []
+            for email in batch:
+                payload.append({
+                    "id": email['id'],
+                    "subject": email.get('subject', '(No subject)'),
+                    "from": f"{email.get('from_name', '')} <{email.get('from_email', '')}>",
+                    "snippet": email.get('snippet', ''),
+                    "reason": email.get('_cleanup_reason', '')
+                })
+            prompt = (
+                "You triage emails for a busy professional. For each email decide whether it should be "
+                "'archive' (low priority like newsletters/promotions) or 'keep' (may contain useful info). "
+                "If unsure, choose keep. Respond ONLY with JSON array like:\n"
+                '[{"id": "...", "decision": "keep", "reason": "..."}, ...]\n\n'
+                "Emails:\n"
+                f"{json.dumps(payload, ensure_ascii=False)}"
+            )
+            try:
+                response = client.messages.create(
+                    model=AI_TRIAGE_MODEL,
+                    max_tokens=600,
+                    system="You are an email triage assistant. Prefer keeping important messages and be explicit about why.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+            except Exception:
+                continue
+            if not response.content:
+                continue
+            text = response.content[0].text.strip()
+            parsed = self._extract_json_array(text)
+            if not parsed:
+                continue
+            for item in parsed:
+                email_id = item.get("id")
+                decision = item.get("decision", "").lower()
+                reason = item.get("reason", "")
+                if email_id and decision in {"keep", "archive"}:
+                    decisions[email_id] = {
+                        "decision": decision,
+                        "reason": reason
+                    }
+        return decisions
+
+    def _extract_json_array(self, text: str) -> Optional[List[Dict[str, Any]]]:
+        candidates = []
+        if text.startswith("```"):
+            parts = text.split("```")
+            for part in parts:
+                part = part.strip()
+                if part.startswith("{") or part.startswith("["):
+                    candidates.append(part)
+        candidates.append(text)
+        for candidate in candidates:
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, list):
+                    return data  # type: ignore[arg-type]
+            except json.JSONDecodeError:
+                continue
+        return None
+
+    def _extract_json_object(self, text: str) -> Optional[Dict[str, Any]]:
+        candidates = []
+        if text.startswith("```"):
+            parts = text.split("```")
+            for part in parts:
+                part = part.strip()
+                if part.startswith("{"):
+                    candidates.append(part)
+        if "{" in text and "}" in text:
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            if start >= 0 and end > start:
+                candidates.append(text[start:end])
+        for candidate in candidates:
+            try:
+                data = json.loads(candidate)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                continue
+        return None
     
     def cmd_search(self, args: str):
         """Perform semantic search across journals, tasks, and projects."""
@@ -1298,11 +1601,11 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
 - `focus calendar [range]` / `focus schedule "<event>"` - Same commands from the CLI
 
 ## Email & Inbox (if configured)
-- `/inbox [count]` - View unread Gmail messages
-- `/email <index|id>` - Read a specific email
-- `/reply <index|id>` - Draft & send a reply with AI
-- `/archive <index|id...>` - Archive or mark emails as read
-- `/cleanup` - Bulk archive newsletter-style emails
+- `/email inbox [count]` - View unread Gmail messages
+- `/email read <index|id>` - Read a specific email
+- `/email reply <index|id>` - Draft & send a reply with AI
+- `/email cleanup [query]` - Newsletter cleanup or stage a Gmail search (max 25)
+- `/email archive <index|id...>` - Archive specific emails (add --delete to trash)
 
 ## Search & Projects
 - `/search <query>` - Search your notes, tasks, and projects semantically
