@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.styles import Style as PromptStyle
+from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 
 from assistant import Assistant
 from tasks import task_manager
@@ -53,7 +56,55 @@ class InteractiveSession:
             '/quit': self.cmd_quit,
             '/exit': self.cmd_quit,
         }
-        # Set up prompt session with history
+
+        # Command metadata for autocomplete with descriptions
+        self.command_metadata = {
+            '/morning': 'Start your morning routine and plan the day',
+            '/evening': 'Reflect on your day with evening routine',
+            '/today': "Show today's plan and main goal",
+            '/tasks': 'View your task board (today, upcoming, inbox)',
+            '/add': 'Add a new task',
+            '/done': 'Mark a task as complete',
+            '/note': 'Create a quick inline note',
+            '/write': 'Create a rich markdown note (opens in browser)',
+            '/log': 'Open daily journal in web editor',
+            '/calendar': 'View calendar events',
+            '/schedule': 'Create a calendar event',
+            '/search': 'Search your notes, tasks, and projects',
+            '/projects': 'View all your projects',
+            '/stats': 'Show productivity statistics',
+            '/config': 'Configure API key and settings',
+            '/help': 'Show help message',
+            '/quit': 'Exit the assistant',
+            '/exit': 'Exit the assistant',
+        }
+
+        # Set up command completer
+        self.completer = WordCompleter(
+            list(self.command_metadata.keys()),
+            meta_dict=self.command_metadata,
+            ignore_case=True,
+            sentence=True,  # Allow completion mid-sentence
+        )
+
+        # Set up custom key bindings
+        self.kb = KeyBindings()
+
+        # Option+Delete (Alt+Backspace) - delete word backward
+        @self.kb.add('escape', 'backspace')  # Alt+Backspace
+        def _(event):
+            """Delete the word before the cursor."""
+            buff = event.current_buffer
+            buff.delete_before_cursor(count=buff.document.find_start_of_previous_word())
+
+        # Option+Delete for forward delete (on Mac, this might be Alt+Delete or Alt+D)
+        @self.kb.add('escape', 'd')  # Alt+D
+        def _(event):
+            """Delete the word after the cursor."""
+            buff = event.current_buffer
+            buff.delete(count=buff.document.find_next_word_ending())
+
+        # Set up prompt session with history, completer, and key bindings
         self.history = InMemoryHistory()
         self.prompt_style = PromptStyle.from_dict({
             'prompt': '#00ff00 bold',  # Green prompt like terminal
@@ -61,6 +112,9 @@ class InteractiveSession:
         self.session = PromptSession(
             history=self.history,
             style=self.prompt_style,
+            completer=self.completer,
+            complete_while_typing=True,  # Show completions as you type
+            key_bindings=self.kb,
         )
 
     def _show_welcome_screen(self):
@@ -638,15 +692,15 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
                 end_time=end_time,
                 description=event_data.get('description', '')
             )
-            
+
             if created_event:
                 console.print(f"[green]✓ Created event: {created_event['summary']}[/green]")
                 console.print(f"[dim]  {start_time.strftime('%A, %B %d at %I:%M %p')}[/dim]")
                 if created_event.get('htmlLink'):
                     console.print(f"[dim]  {created_event['htmlLink']}[/dim]")
-        else:
+            else:
                 console.print("[red]Failed to create event[/red]")
-        
+
         except Exception as e:
             console.print(f"[red]Error creating event: {e}[/red]")
         
@@ -939,8 +993,6 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
 ## Calendar (if configured)
 - `/calendar [today|tomorrow|weekend|week]` - View calendar events (interactive mode)
 - `/schedule <description>` - Create a calendar event (e.g., "team meeting tomorrow at 2pm")
-- `focus calendar [today|tomorrow|weekend|week]` - Same as above from the CLI
-- `focus schedule "event details"` - Create an event directly from the CLI
 
 ## Search & Projects
 - `/search <query>` - Search your notes, tasks, and projects semantically

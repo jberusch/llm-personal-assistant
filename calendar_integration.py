@@ -7,7 +7,7 @@ Provides read/write access to Google Calendar events.
 from __future__ import annotations
 
 import pickle
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -79,6 +79,18 @@ class CalendarIntegration:
         """Return True if OAuth token has been generated."""
         return self.token_file.exists()
     
+    def _to_utc_rfc3339(self, dt: datetime) -> str:
+        """Convert a datetime to UTC RFC3339 format for Google Calendar API."""
+        # If datetime is naive (no timezone), assume it's in local time
+        if dt.tzinfo is None:
+            dt = dt.astimezone()  # Convert to local timezone-aware datetime
+        
+        # Convert to UTC
+        dt_utc = dt.astimezone(timezone.utc)
+        
+        # Return ISO format with 'Z' suffix
+        return dt_utc.strftime('%Y-%m-%dT%H:%M:%S.%f')[:-3] + 'Z'
+    
     def get_events(
         self,
         start_date: Optional[datetime] = None,
@@ -110,9 +122,9 @@ class CalendarIntegration:
             if end_date is None:
                 end_date = start_date + timedelta(days=7)
             
-            # Convert to RFC3339 timestamp
-            time_min = start_date.isoformat() + 'Z'
-            time_max = end_date.isoformat() + 'Z'
+            # Convert to RFC3339 timestamp in UTC
+            time_min = self._to_utc_rfc3339(start_date)
+            time_max = self._to_utc_rfc3339(end_date)
             
             events_result = self.service.events().list(
                 calendarId='primary',
