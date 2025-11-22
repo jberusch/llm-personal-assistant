@@ -12,7 +12,7 @@ from projects import project_manager
 def create_app():
     """Create and configure the Flask app."""
     app = Flask(__name__)
-    CORS(app)  # Allow React dev server to call APIs
+    CORS(app, resources={r"/api/*": {"origins": "*"}})  # Allow React dev server to call APIs
     
     # Tasks endpoints
     
@@ -29,12 +29,41 @@ def create_app():
             'inbox': [task_to_dict(t) for t in inbox_tasks]
         })
     
-    @app.route('/api/tasks/<task_id>/complete', methods=['POST'])
+    @app.route('/api/tasks/<task_id>/complete', methods=['POST', 'OPTIONS'])
     def complete_task(task_id):
         """Mark a task as complete."""
+        if request.method == 'OPTIONS':
+            return '', 204
         try:
             task_manager.complete_task(task_id)
             return jsonify({'success': True})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    # Notes endpoints
+    
+    @app.route('/api/notes', methods=['POST', 'OPTIONS'])
+    def create_note():
+        """Create a new note."""
+        if request.method == 'OPTIONS':
+            return '', 204
+        try:
+            data = request.get_json()
+            title = data.get('title', '').strip()
+            content = data.get('content', '').strip()
+            project_id = data.get('project_id')
+            
+            if not content:
+                return jsonify({'error': 'Content is required'}), 400
+            
+            # Use first 50 chars of content as title if not provided
+            if not title:
+                title = content[:50] + ('...' if len(content) > 50 else '')
+            
+            # Save note to journal
+            storage.add_note_to_journal(title, content, project_id=project_id)
+            
+            return jsonify({'success': True, 'message': 'Note saved'})
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     

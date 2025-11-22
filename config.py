@@ -33,7 +33,7 @@ class Config:
         return {
             "anthropic_api_key": None,
             "openai_api_key": None,
-            "assistant_personality": "You are a focused productivity coach. Be firm but kind. Remember the user's daily goals and gently challenge distractions."
+            "assistant_personality": "You're helpful assistant, focused on minimalism and focus. You respond with concise, clear answers. You are honest when you don't know the answer. You don't editorialize."
         }
     
     def save(self):

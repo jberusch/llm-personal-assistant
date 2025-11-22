@@ -7,6 +7,14 @@ import anthropic
 from config import config
 from storage import storage, JournalEntry
 
+# Try to import calendar integration (may not be configured)
+try:
+    from calendar_integration import calendar_integration
+    CALENDAR_AVAILABLE = calendar_integration is not None
+except ImportError:
+    CALENDAR_AVAILABLE = False
+    calendar_integration = None
+
 
 class Assistant:
     """Manages conversations with Claude API."""
@@ -53,6 +61,19 @@ class Assistant:
                     context += f" (due: {task.due_date.strftime('%Y-%m-%d')})"
                 context += "\n"
             base_prompt += context
+        
+        # Add calendar context if available
+        if CALENDAR_AVAILABLE and calendar_integration.is_configured() and calendar_integration.has_token():
+            try:
+                # Get upcoming calendar events (next 7 days)
+                events = calendar_integration.get_events()
+                if events:
+                    context = "\n\nUpcoming calendar events:\n"
+                    context += calendar_integration.format_events_for_llm(events)
+                    base_prompt += context
+            except Exception:
+                # Silently fail if calendar isn't accessible
+                pass
         
         return base_prompt
     

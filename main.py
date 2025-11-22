@@ -6,6 +6,16 @@ A CLI tool to help you plan your day, manage tasks, and stay focused.
 """
 
 import sys
+import warnings
+
+# Suppress urllib3 OpenSSL warning (doesn't affect functionality)
+warnings.filterwarnings('ignore', message='urllib3 v2 only supports OpenSSL 1.1.1+')
+warnings.filterwarnings(
+    'ignore',
+    category=FutureWarning,
+    module='google\\.api_core\\._python_version_support'
+)
+
 import click
 from rich.console import Console
 from rich.table import Table
@@ -266,6 +276,143 @@ def done(task_id):
             console.print("[red]Task not found[/red]")
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
+
+
+@cli.command()
+@click.argument('timeframe', default='today')
+def calendar(timeframe):
+    """View calendar events.
+    
+    Examples:
+        focus calendar            # Show today's events
+        focus calendar today      # Show today's events
+        focus calendar tomorrow   # Show tomorrow's events
+        focus calendar weekend    # Show this weekend
+        focus calendar week       # Show this week
+    """
+    try:
+        from calendar_integration import calendar_integration
+        
+        if (not calendar_integration) or (not calendar_integration.is_configured()):
+            console.print("\n[yellow]⚠️  Google Calendar not configured yet[/yellow]")
+            console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
+            return
+        
+        timeframe = timeframe.lower().strip()
+        
+        if timeframe in ['today', '']:
+            events = calendar_integration.get_events_today()
+            title = "📅 Today's Calendar"
+        elif timeframe == 'tomorrow':
+            events = calendar_integration.get_events_tomorrow()
+            title = "📅 Tomorrow's Calendar"
+        elif timeframe in ['weekend', 'this_weekend']:
+            events = calendar_integration.get_weekend_events()
+            title = "📅 This Weekend"
+        elif timeframe in ['week', 'this_week']:
+            events = calendar_integration.get_events_this_week()
+            title = "📅 This Week"
+        else:
+            console.print("[yellow]Usage: focus calendar [today|tomorrow|weekend|week][/yellow]\n")
+            return
+        
+        formatted = calendar_integration.format_events_for_display(events)
+        console.print()
+        console.print(Panel(formatted, title=title, border_style="cyan"))
+        console.print()
+        
+    except ImportError:
+        console.print("\n[yellow]⚠️  Google Calendar not configured yet[/yellow]")
+        console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]\n")
+
+
+@cli.command()
+@click.argument('event_description', nargs=-1)
+def schedule(event_description):
+    """Create a calendar event using natural language.
+    
+    Examples:
+        focus schedule "Team meeting tomorrow at 2pm"
+        focus schedule "Dentist appointment Friday at 10am"
+        focus schedule "Lunch with Sarah next Tuesday at noon"
+    """
+    if not event_description:
+        console.print("\n[yellow]Usage: focus schedule \"<event description>\"[/yellow]")
+        console.print("[dim]Example: focus schedule \"Team meeting tomorrow at 2pm\"[/dim]\n")
+        return
+    
+    try:
+        from calendar_integration import calendar_integration
+        from assistant import Assistant
+        from datetime import timedelta
+        from dateutil.parser import parse as parse_date
+        import json
+        
+        if (not calendar_integration) or (not calendar_integration.is_configured()):
+            console.print("\n[yellow]⚠️  Google Calendar not configured yet[/yellow]")
+            console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
+            return
+        
+        event_text = ' '.join(event_description)
+        console.print(f"\n[cyan]Creating calendar event...[/cyan]")
+        
+        # Use the assistant to parse the event details
+        assistant = Assistant()
+        prompt = f"""The user wants to create a calendar event. Parse this into structured data:
+
+"{event_text}"
+
+Return ONLY a JSON object with these fields:
+{{
+    "summary": "event title",
+    "start_time": "YYYY-MM-DD HH:MM",
+    "duration_hours": 1.0,
+    "description": "optional description"
+}}
+
+Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow."""
+        
+        response = assistant.ask_question(prompt)
+        
+        # Extract JSON from response
+        if '```json' in response:
+            json_str = response.split('```json')[1].split('```')[0].strip()
+        elif '```' in response:
+            json_str = response.split('```')[1].split('```')[0].strip()
+        else:
+            json_str = response.strip()
+        
+        event_data = json.loads(json_str)
+        
+        # Parse start time
+        start_time = parse_date(event_data['start_time'])
+        duration_hours = event_data.get('duration_hours', 1.0)
+        end_time = start_time + timedelta(hours=duration_hours)
+        
+        # Create the event
+        created_event = calendar_integration.create_event(
+            summary=event_data['summary'],
+            start_time=start_time,
+            end_time=end_time,
+            description=event_data.get('description', '')
+        )
+        
+        if created_event:
+            console.print(f"[green]✓ Created event: {created_event['summary']}[/green]")
+            console.print(f"[dim]  {start_time.strftime('%A, %B %d at %I:%M %p')}[/dim]")
+            if created_event.get('htmlLink'):
+                console.print(f"[dim]  {created_event['htmlLink']}[/dim]")
+            console.print()
+        else:
+            console.print("[red]Failed to create event[/red]\n")
+    
+    except ImportError:
+        console.print("\n[yellow]⚠️  Google Calendar not configured yet[/yellow]")
+        console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
+    except Exception as e:
+        console.print(f"[red]Error creating event: {e}[/red]\n")
 
 
 @cli.command()

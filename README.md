@@ -7,6 +7,7 @@ Your personal productivity coach powered by Claude AI. A CLI tool to help you pl
 - **Morning Routine**: Start your day with a structured reflection that helps you identify priorities
 - **Interactive Chat**: Talk naturally with your AI coach throughout the day
 - **Smart Task Management**: Add tasks with natural language ("remind me tomorrow to pay rent")
+- **Google Calendar Integration** (optional): View events, schedule meetings, get calendar-aware responses
 - **Evening Reflection**: Review your day and prepare for tomorrow
 - **Context-Aware**: The assistant remembers your morning goals and helps keep you on track
 
@@ -113,6 +114,37 @@ Mark tasks as complete:
 ```bash
 ./focus done
 ```
+
+### Calendar Integration (Optional)
+
+Connect your Google Calendar to view events and schedule meetings!
+
+**Setup** (5 minutes, one-time):  
+See **[GOOGLE_CALENDAR_SETUP.md](GOOGLE_CALENDAR_SETUP.md)** for detailed setup instructions.
+
+**View events:**
+```bash
+./focus calendar                 # Today's events
+./focus calendar tomorrow        # Tomorrow's events
+./focus calendar weekend         # This weekend
+./focus calendar week            # This week
+```
+
+**Create events:**
+```bash
+./focus schedule "Team meeting tomorrow at 2pm"
+./focus schedule "Dentist Friday at 10am"
+```
+
+**In chat mode, ask naturally:**
+```bash
+./focus
+> what do I have this weekend?
+> am I free tomorrow afternoon?
+> schedule lunch with Sarah next Tuesday at noon
+```
+
+The assistant automatically knows your calendar and includes it when answering questions!
 
 ### Evening Reflection
 End your day with reflection:

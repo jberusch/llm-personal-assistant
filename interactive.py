@@ -5,7 +5,10 @@ from rich.prompt import Prompt
 from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.table import Table
-from datetime import datetime
+from datetime import datetime, timedelta
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import InMemoryHistory
+from prompt_toolkit.styles import Style as PromptStyle
 
 from assistant import Assistant
 from tasks import task_manager
@@ -14,6 +17,14 @@ from storage import storage
 from config import config
 
 console = Console()
+
+# Try to import calendar integration (may not be configured)
+try:
+    from calendar_integration import calendar_integration
+    CALENDAR_AVAILABLE = calendar_integration is not None
+except ImportError:
+    CALENDAR_AVAILABLE = False
+    calendar_integration = None
 
 
 class InteractiveSession:
@@ -32,6 +43,8 @@ class InteractiveSession:
             '/note': self.cmd_quick_note,
             '/write': self.cmd_write_note,
             '/log': self.cmd_log,
+            '/calendar': self.cmd_calendar,
+            '/schedule': self.cmd_schedule,
             '/search': self.cmd_search,
             '/projects': self.cmd_projects,
             '/stats': self.cmd_stats,
@@ -40,26 +53,49 @@ class InteractiveSession:
             '/quit': self.cmd_quit,
             '/exit': self.cmd_quit,
         }
+        # Set up prompt session with history
+        self.history = InMemoryHistory()
+        self.prompt_style = PromptStyle.from_dict({
+            'prompt': '#00ff00 bold',  # Green prompt like terminal
+        })
+        self.session = PromptSession(
+            history=self.history,
+            style=self.prompt_style,
+        )
+
+    def _show_welcome_screen(self):
+        """Display retro ASCII art welcome screen."""
+        welcome_art = """
+╔═══════════════════════════════════════════════════════════════╗
+║                                                               ║
+║   ███████╗ ██████╗  ██████╗██╗   ██╗███████╗                ║
+║   ██╔════╝██╔═══██╗██╔════╝██║   ██║██╔════╝                ║
+║   █████╗  ██║   ██║██║     ██║   ██║███████╗                ║
+║   ██╔══╝  ██║   ██║██║     ██║   ██║╚════██║                ║
+║   ██║     ╚██████╔╝╚██████╗╚██████╔╝███████║                ║
+║   ╚═╝      ╚═════╝  ╚═════╝ ╚═════╝ ╚══════╝                ║
+║                                                               ║
+║              Your Personal Productivity Coach                 ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+"""
+        console.print(f"[bold cyan]{welcome_art}[/bold cyan]")
+        console.print("[dim]  Type /help for commands  •  Just chat naturally for AI assistance[/dim]\n")
     
     def start(self):
         """Start the interactive session."""
-        # Welcome message
-        console.print("\n[bold cyan]✨ Focus Assistant[/bold cyan]")
-        console.print("[dim]Your personal productivity coach[/dim]\n")
+        # Retro welcome screen
+        self._show_welcome_screen()
         
         # Check for API key
         if not config.get_api_key():
             console.print("[yellow]⚠ No API key found.[/yellow]")
             console.print("[dim]Get your key from: https://console.anthropic.com/[/dim]\n")
-            api_key = Prompt.ask("Enter your Anthropic API key (or type /quit to exit)")
+            api_key = self.session.prompt("Enter your Anthropic API key (or type /quit to exit): ")
             if api_key.lower() in ['/quit', '/exit', 'quit', 'exit']:
                 return
             config.set_api_key(api_key)
             console.print("[green]✓ API key saved![/green]\n")
-        
-        # Show quick help
-        console.print("[dim]Type /help for available commands, or just chat naturally.[/dim]")
-        console.print("[dim]Example commands: /morning, /tasks, /note, /search, /add, /done[/dim]\n")
         
         # Initialize assistant
         try:
@@ -79,12 +115,19 @@ class InteractiveSession:
         # Main REPL loop
         while self.running:
             try:
-                # Get user input
-                user_input = Prompt.ask("[bold green]>[/bold green]")
+                # Print separator line above input
+                terminal_width = console.width
+                console.print(f"[dim]{'─' * terminal_width}[/dim]")
+
+                # Get user input with history support (up arrow works!)
+                user_input = self.session.prompt("> ")
                 
                 if not user_input.strip():
                     continue
                 
+                # Print separator line below input
+                console.print(f"[dim]{'─' * terminal_width}[/dim]\n")
+
                 # Check if it's a command
                 if user_input.startswith('/'):
                     self._handle_command(user_input)
@@ -453,41 +496,14 @@ class InteractiveSession:
     
     def cmd_write_note(self, args: str):
         """Create a rich markdown note in the web editor."""
+        import webbrowser
+        
         console.print()
         console.print("[bold cyan]📝 Opening note editor...[/bold cyan]")
-        console.print("[dim]A new browser window will open.[/dim]\n")
+        console.print("[dim]Make sure the web app is running: cd web && npm run dev[/dim]\n")
         
-        try:
-            from note_editor import open_note_editor
-            result = open_note_editor()
-            
-            if result:
-                console.print(f"\n[green]✓ Note saved: {result['title']}[/green]")
-                
-                # Prompt for project assignment
-                project_id = self._prompt_for_project_assignment()
-                
-                if project_id:
-                    # Update the note with project_id
-                    journal = storage.load_journal()
-                    notes = journal.get("notes", [])
-                    
-                    # Find the most recent note (the one we just added)
-                    if notes:
-                        notes[-1]["project_id"] = project_id
-                        storage.save_journal(journal)
-                        
-                        from projects import project_manager
-                        project = project_manager.get_project(project_id)
-                        console.print(f"[green]✓ Assigned to project: {project.name}[/green]\n")
-                    else:
-                        console.print()
-                else:
-                    console.print()
-            else:
-                console.print("\n[dim]Note editor closed without saving.[/dim]\n")
-        except Exception as e:
-            console.print(f"\n[red]Error opening note editor: {e}[/red]\n")
+        webbrowser.open('http://localhost:5173/write')
+        console.print("[green]✓ Opened note editor[/green]\n")
     
     def cmd_log(self, args: str):
         """Open daily journal in web editor."""
@@ -530,6 +546,112 @@ class InteractiveSession:
             console.print()
             console.print(f"[red]Error starting editor: {e}[/red]\n")
     
+    def cmd_calendar(self, args: str):
+        """View calendar events."""
+        if (not CALENDAR_AVAILABLE) or (not calendar_integration.is_configured()):
+            console.print()
+            console.print("[yellow]⚠️  Google Calendar not configured yet[/yellow]")
+            console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
+            return
+        
+        console.print()
+        
+        # Parse arguments
+        args = args.strip().lower()
+        
+        if not args or args == 'today':
+            events = calendar_integration.get_events_today()
+            title = "📅 Today's Calendar"
+        elif args == 'tomorrow':
+            events = calendar_integration.get_events_tomorrow()
+            title = "📅 Tomorrow's Calendar"
+        elif args in ['weekend', 'this weekend']:
+            events = calendar_integration.get_weekend_events()
+            title = "📅 This Weekend"
+        elif args in ['week', 'this week']:
+            events = calendar_integration.get_events_this_week()
+            title = "📅 This Week"
+        else:
+            console.print("[yellow]Usage: /calendar [today|tomorrow|weekend|week][/yellow]\n")
+            return
+        
+        formatted = calendar_integration.format_events_for_display(events)
+        console.print(Panel(formatted, title=title, border_style="cyan"))
+        console.print()
+    
+    def cmd_schedule(self, args: str):
+        """Create a calendar event using natural language."""
+        if (not CALENDAR_AVAILABLE) or (not calendar_integration.is_configured()):
+            console.print()
+            console.print("[yellow]⚠️  Google Calendar not configured yet[/yellow]")
+            console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
+            return
+        
+        if not args.strip():
+            console.print()
+            console.print("[yellow]Usage: /schedule <event description>[/yellow]")
+            console.print("[dim]Example: /schedule Team meeting tomorrow at 2pm[/dim]\n")
+            return
+        
+        console.print()
+        console.print("[cyan]Creating calendar event...[/cyan]")
+        
+        # Use the assistant to parse the event details
+        prompt = f"""The user wants to create a calendar event. Parse this into structured data:
+        
+"{args}"
+
+Return ONLY a JSON object with these fields:
+{{
+    "summary": "event title",
+    "start_time": "YYYY-MM-DD HH:MM",
+    "duration_hours": 1.0,
+    "description": "optional description"
+}}
+
+Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow."""
+        
+        try:
+            import json
+            response = self.assistant.ask_question(prompt)
+            
+            # Extract JSON from response
+            if '```json' in response:
+                json_str = response.split('```json')[1].split('```')[0].strip()
+            elif '```' in response:
+                json_str = response.split('```')[1].split('```')[0].strip()
+            else:
+                json_str = response.strip()
+            
+            event_data = json.loads(json_str)
+            
+            # Parse start time
+            from dateutil.parser import parse as parse_date
+            start_time = parse_date(event_data['start_time'])
+            duration_hours = event_data.get('duration_hours', 1.0)
+            end_time = start_time + timedelta(hours=duration_hours)
+            
+            # Create the event
+            created_event = calendar_integration.create_event(
+                summary=event_data['summary'],
+                start_time=start_time,
+                end_time=end_time,
+                description=event_data.get('description', '')
+            )
+            
+            if created_event:
+                console.print(f"[green]✓ Created event: {created_event['summary']}[/green]")
+                console.print(f"[dim]  {start_time.strftime('%A, %B %d at %I:%M %p')}[/dim]")
+                if created_event.get('htmlLink'):
+                    console.print(f"[dim]  {created_event['htmlLink']}[/dim]")
+        else:
+                console.print("[red]Failed to create event[/red]")
+        
+        except Exception as e:
+            console.print(f"[red]Error creating event: {e}[/red]")
+        
+        console.print()
+    
     def cmd_search(self, args: str):
         """Perform semantic search across journals, tasks, and projects."""
         if not args.strip():
@@ -569,8 +691,7 @@ class InteractiveSession:
                         f"[dim]Closest match distance was {best_distance:.3f} "
                         f"(threshold {fallback_threshold:.2f}). Try a broader query.[/dim]\n"
                     )
-                else:
-                    console.print()
+                console.print()
                 return
             
             if fallback_used:
@@ -815,13 +936,19 @@ class InteractiveSession:
 - `/done` - Mark a task as complete
 - `/stats` - Show productivity statistics
 
+## Calendar (if configured)
+- `/calendar [today|tomorrow|weekend|week]` - View calendar events (interactive mode)
+- `/schedule <description>` - Create a calendar event (e.g., "team meeting tomorrow at 2pm")
+- `focus calendar [today|tomorrow|weekend|week]` - Same as above from the CLI
+- `focus schedule "event details"` - Create an event directly from the CLI
+
 ## Search & Projects
 - `/search <query>` - Search your notes, tasks, and projects semantically
 - `/projects` - View all your projects
 
 ## Notes & Writing
 - `/note` - Create a quick inline note (no LLM response)
-- `/write` - Create a rich markdown note (opens in browser)
+- `/write` - Create a rich markdown note with preview (opens in browser)
 - `/log [date]` - Open your daily journal in web editor (today, or YYYY-MM-DD)
 
 ## Settings

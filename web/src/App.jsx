@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Tasks from './pages/Tasks'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
+import WriteNote from './pages/WriteNote'
 import './App.css'
 
 function App() {
@@ -12,6 +13,7 @@ function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        <Route path="/write" element={<WriteNote />} />
       </Routes>
     </BrowserRouter>
   )

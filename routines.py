@@ -13,6 +13,14 @@ from tasks import task_manager
 
 console = Console()
 
+# Try to import calendar integration (may not be configured)
+try:
+    from calendar_integration import calendar_integration
+    CALENDAR_AVAILABLE = calendar_integration is not None
+except ImportError:
+    CALENDAR_AVAILABLE = False
+    calendar_integration = None
+
 
 class MorningRoutine:
     """Manages the morning check-in routine."""
@@ -81,7 +89,20 @@ class MorningRoutine:
             console.print(f"  {answer}\n")
     
     def _show_tasks(self):
-        """Display current tasks."""
+        """Display current tasks and calendar events."""
+        # Show calendar events if available
+        if CALENDAR_AVAILABLE and calendar_integration.is_configured() and calendar_integration.has_token():
+            try:
+                today_events = calendar_integration.get_events_today()
+                if today_events:
+                    console.print("[bold magenta]📅 Today's Calendar:[/bold magenta]")
+                    formatted = calendar_integration.format_events_for_display(today_events)
+                    console.print(formatted)
+                    console.print()
+            except Exception:
+                # Silently skip if calendar unavailable
+                pass
+        
         today_tasks = task_manager.get_today_tasks()
         upcoming_tasks = task_manager.get_upcoming_tasks()
         inbox_tasks = task_manager.get_inbox_tasks()
