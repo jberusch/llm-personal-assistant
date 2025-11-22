@@ -20,27 +20,6 @@ Or install all requirements:
 pip install -r requirements.txt
 ```
 
-### Terminal Browser (Recommended)
-
-For the best experience, install a terminal browser to view results without leaving the terminal:
-
-**macOS:**
-```bash
-brew install w3m
-```
-
-**Linux (Debian/Ubuntu):**
-```bash
-sudo apt install w3m
-```
-
-**Linux (RHEL/CentOS/Fedora):**
-```bash
-sudo yum install w3m
-```
-
-If no terminal browser is installed, URLs will open in your system's default browser.
-
 ## Usage
 
 ### Basic Web Search
@@ -95,20 +74,11 @@ For backward compatibility, if you don't specify `web` or `history`, it defaults
 
 ## Features
 
-### Terminal Browser Support
-
-When you select a result, it opens in a terminal browser (w3m, lynx, or elinks) if available, keeping you in the terminal. If no terminal browser is installed, it falls back to your system's default browser.
-
-**Supported terminal browsers (in order of preference):**
-1. **w3m** (recommended) - Fast, feature-rich, excellent text rendering
-2. **lynx** - Classic, reliable, widely available
-3. **elinks** - Modern features, good Unicode support
-
 ### Arrow Key Navigation
 
 After running a web search, you'll see a list of results that you can navigate with:
 - **↑/↓ arrows**: Navigate through results
-- **Enter**: Open the selected result in terminal browser (or system browser if not installed)
+- **Enter**: Open the selected result in your default web browser
 - **Esc**: Cancel without opening anything
 
 ### Result Display
@@ -214,31 +184,11 @@ Tip: Use /search history to search your local notes instead.
 
 ## Tips
 
-1. **Install w3m**: For the best experience, install w3m to view results in the terminal
-2. **Be specific**: More specific queries return better results
-3. **Use results parameter**: For quick lookups, use `results:3` or `results:5`
-4. **Arrow keys**: Much faster than typing numbers
-5. **Cancel anytime**: Press Esc if you change your mind
-6. **Terminal browser shortcuts**: In w3m, press `q` to quit, `B` to go back, `/` to search
+1. **Be specific**: More specific queries return better results
+2. **Use results parameter**: For quick lookups, use `results:3` or `results:5`
+3. **Arrow keys**: Much faster than typing numbers
+4. **Cancel anytime**: Press Esc if you change your mind
 5. **Use history search**: `/search history` doesn't have rate limits
-
-## w3m Keyboard Shortcuts
-
-Once you've opened a result in w3m, here are essential shortcuts:
-
-| Key | Action |
-|-----|--------|
-| `q` | Quit w3m |
-| `B` | Back (previous page) |
-| `Tab` | Next link |
-| `Shift+Tab` | Previous link |
-| `Enter` | Follow link |
-| `/` | Search in page |
-| `n` | Next search result |
-| `Space` | Page down |
-| `b` | Page up |
-| `<` or `>` | Scroll horizontally |
-| `H` | Help (full shortcut list) |
 
 ## Help
 

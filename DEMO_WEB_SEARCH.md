@@ -2,9 +2,6 @@
 
 ## Quick Demo: How It Works
 
-> **Note**: Install w3m for the best experience: `brew install w3m` (macOS) or `sudo apt install w3m` (Linux)
-> This allows you to view search results in the terminal without switching to a browser.
-
 ### 1. Basic Web Search
 
 ```bash
@@ -32,8 +29,7 @@ Use ↑/↓ arrows to navigate, Enter to open in browser, Esc to cancel
 Opening: The Python Tutorial — Python 3.14.0 documentation
 https://docs.python.org/3/tutorial/index.html
 
-[Page opens in w3m terminal browser - user can read documentation without leaving terminal]
-[Press 'q' to quit w3m and return to Focus Assistant]
+✓ Opened in browser
 ```
 
 ### 2. Limited Results
@@ -148,7 +144,7 @@ Automatically uses history search (searches local data, not the web).
 - **Scope**: Entire web via DuckDuckGo
 - **Command**: `/search web <query> [results:N]`
 - **Output**: Clickable list of web results
-- **Opens in**: Terminal browser (w3m/lynx/elinks) or system browser
+- **Opens in**: Your default web browser
 - **Use case**: "Find latest tutorials", "Look up documentation"
 
 ### History Search (EXISTING)
@@ -160,12 +156,10 @@ Automatically uses history search (searches local data, not the web).
 
 ## Tips for Best Results
 
-1. **Install Terminal Browser**: `brew install w3m` to stay in the terminal
-2. **Be Specific**: `python web scraping tutorial` > `python`
-3. **Limit Results**: Use `results:5` for quick lookups
-4. **Use History for Personal Data**: Don't search web for your own notes
-5. **Keyboard Navigation**: Arrow keys are faster than typing numbers
-6. **w3m shortcuts**: Press `q` to quit, `Tab` to navigate links, `/` to search
+1. **Be Specific**: `python web scraping tutorial` > `python`
+2. **Limit Results**: Use `results:5` for quick lookups
+3. **Use History for Personal Data**: Don't search web for your own notes
+4. **Keyboard Navigation**: Arrow keys are faster than typing numbers
 
 ## Common Use Cases
 
@@ -252,37 +246,16 @@ Example: /search web python tutorials results:5
 > /search history quantum computing
 ```
 
-## Terminal Browser Benefits
-
-Using w3m (or lynx/elinks) keeps you in your workflow:
-- ✅ **Stay focused**: No context switching to GUI browser
-- ✅ **Fast**: Instant startup, minimal resources
-- ✅ **Keyboard-driven**: Navigate with vim-like shortcuts
-- ✅ **Distraction-free**: Text-only, no ads or popups
-- ✅ **Works over SSH**: Even on remote servers
-
-### When to Use System Browser
-
-For sites that need JavaScript or complex interactions:
-- Interactive web apps
-- Sites with heavy CSS layouts
-- Video content
-- Complex forms
-
-If w3m doesn't render something well, just close it and re-run the search, then open in your system browser.
-
 ## Next Steps
 
-1. **Install w3m**: `brew install w3m` or `sudo apt install w3m`
-2. **Try it out**: `/search web your favorite topic`
-3. **Adjust results**: Add `results:3` or `results:15`
-4. **Compare**: Try `/search history` for local data
-5. **Integrate**: Use in your daily workflow
+1. **Try it out**: `/search web your favorite topic`
+2. **Adjust results**: Add `results:3` or `results:15`
+3. **Compare**: Try `/search history` for local data
+4. **Integrate**: Use in your daily workflow
 
 ---
 
 **Requirements**: 
 - `duckduckgo_search>=6.0.0,<7.0.0` (in requirements.txt)
-- `pick>=2.2.0` (in requirements.txt) 
-- `w3m` (recommended): `brew install w3m`
+- `pick>=2.2.0` (in requirements.txt)
 

@@ -1483,29 +1483,6 @@ Request: "{request}"
             console.print(f"[red]Error during search: {e}[/red]")
             console.print(f"[dim]Make sure you've run: ./focus index[/dim]\n")
     
-    def _open_url_in_terminal_or_browser(self, url: str, title: str = "result"):
-        """Open URL in terminal browser (w3m/lynx/elinks) or fallback to system browser."""
-        import subprocess
-        import shutil
-        
-        console.print()
-        console.print(f"[cyan]Opening: {title}[/cyan]")
-        console.print(f"[dim]{url}[/dim]\n")
-        
-        # Try terminal browsers in order of preference
-        if shutil.which('w3m'):
-            subprocess.run(['w3m', url])
-        elif shutil.which('lynx'):
-            subprocess.run(['lynx', url])
-        elif shutil.which('elinks'):
-            subprocess.run(['elinks', url])
-        else:
-            console.print("[dim]No terminal browser found (w3m/lynx/elinks). Opening in system browser...[/dim]")
-            import webbrowser
-            webbrowser.open(url)
-        
-        console.print()  # Clean spacing after browser exits
-    
     def cmd_search_web(self, args: str):
         """Search DuckDuckGo and display results with arrow key navigation."""
         if not args.strip():
@@ -1620,7 +1597,11 @@ Request: "{request}"
                     url = selected_result.get('href', selected_result.get('link', ''))
 
                     if url:
-                        self._open_url_in_terminal_or_browser(url, selected_result.get('title', 'result'))
+                        import webbrowser
+                        console.print()
+                        console.print(f"[cyan]Opening: {selected_result.get('title', 'result')}[/cyan]")
+                        console.print(f"[dim]{url}[/dim]\n")
+                        webbrowser.open(url)
                     else:
                         console.print("[red]No URL found for this result.[/red]\n")
             except (KeyboardInterrupt, EOFError):
@@ -1655,7 +1636,10 @@ Request: "{request}"
                     if 0 <= idx < len(results):
                         url = results[idx].get('href', results[idx].get('link', ''))
                         if url:
-                            self._open_url_in_terminal_or_browser(url, results[idx].get('title', 'result'))
+                            import webbrowser
+                            console.print()
+                            console.print(f"[cyan]Opening: {results[idx].get('title', 'result')}[/cyan]\n")
+                            webbrowser.open(url)
                         else:
                             console.print("[red]No URL found for this result.[/red]\n")
                     else:
