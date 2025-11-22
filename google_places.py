@@ -20,6 +20,7 @@ class Place:
     types: List[str] = None
     vicinity: Optional[str] = None
     business_status: Optional[str] = None
+    editorial_summary: Optional[str] = None
     
     def __post_init__(self):
         if self.types is None:
@@ -100,6 +101,11 @@ class GooglePlacesClient:
             
             places = []
             for result in results:
+                # Extract editorial summary if available
+                editorial_summary = None
+                if 'editorial_summary' in result:
+                    editorial_summary = result['editorial_summary'].get('overview')
+                
                 place = Place(
                     place_id=result.get('place_id', ''),
                     name=result.get('name', 'Unknown'),
@@ -111,6 +117,7 @@ class GooglePlacesClient:
                     vicinity=result.get('vicinity'),
                     types=result.get('types', []),
                     business_status=result.get('business_status'),
+                    editorial_summary=editorial_summary,
                 )
                 places.append(place)
             
@@ -135,7 +142,7 @@ class GooglePlacesClient:
             'place_id': place_id,
             'key': self.api_key,
             'fields': 'name,formatted_address,formatted_phone_number,website,rating,'
-                     'user_ratings_total,price_level,opening_hours,types,business_status,url'
+                     'user_ratings_total,price_level,opening_hours,types,business_status,url,editorial_summary'
         }
         
         try:
@@ -147,6 +154,11 @@ class GooglePlacesClient:
                 raise Exception(f"Places API error: {data.get('status')}")
             
             result = data.get('result', {})
+            
+            # Extract editorial summary if available
+            editorial_summary = None
+            if 'editorial_summary' in result:
+                editorial_summary = result['editorial_summary'].get('overview')
             
             place = Place(
                 place_id=place_id,
@@ -160,6 +172,7 @@ class GooglePlacesClient:
                 website=result.get('website'),
                 types=result.get('types', []),
                 business_status=result.get('business_status'),
+                editorial_summary=editorial_summary,
             )
             
             return place
@@ -210,6 +223,11 @@ class GooglePlacesClient:
             
             places = []
             for result in results:
+                # Extract editorial summary if available
+                editorial_summary = None
+                if 'editorial_summary' in result:
+                    editorial_summary = result['editorial_summary'].get('overview')
+                
                 place = Place(
                     place_id=result.get('place_id', ''),
                     name=result.get('name', 'Unknown'),
@@ -221,6 +239,7 @@ class GooglePlacesClient:
                     vicinity=result.get('vicinity'),
                     types=result.get('types', []),
                     business_status=result.get('business_status'),
+                    editorial_summary=editorial_summary,
                 )
                 places.append(place)
             

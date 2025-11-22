@@ -1612,16 +1612,21 @@ Request: "{request}"
             from pick import pick
 
             title = "Use ↑/↓ arrows to navigate, Enter to open in browser, Esc to cancel"
-            selected_option, selected_index = pick(options, title, indicator="→")
+            try:
+                selected_option, selected_index = pick(options, title, indicator="→")
+                
+                if selected_index is not None:
+                    selected_result = results[selected_index]
+                    url = selected_result.get('href', selected_result.get('link', ''))
 
-            if selected_index is not None:
-                selected_result = results[selected_index]
-                url = selected_result.get('href', selected_result.get('link', ''))
-
-                if url:
-                    self._open_url_in_terminal_or_browser(url, selected_result.get('title', 'result'))
-                else:
-                    console.print("[red]No URL found for this result.[/red]\n")
+                    if url:
+                        self._open_url_in_terminal_or_browser(url, selected_result.get('title', 'result'))
+                    else:
+                        console.print("[red]No URL found for this result.[/red]\n")
+            except (KeyboardInterrupt, EOFError):
+                # User pressed Esc or Ctrl+C to cancel
+                console.print("\n[dim]Cancelled.[/dim]\n")
+                return
 
         except ImportError:
             # Fallback: numbered list
@@ -1698,20 +1703,25 @@ Request: "{request}"
                 from pick import pick
                 
                 title = "Use ↑/↓ arrows to navigate, Enter to open in browser, Esc to cancel"
-                selected_option, selected_index = pick(options, title, indicator="→")
-                
-                if selected_index is not None:
-                    selected_result = results[selected_index]
-                    url = selected_result.get('href', selected_result.get('link', ''))
+                try:
+                    selected_option, selected_index = pick(options, title, indicator="→")
                     
-                    if url:
-                        import webbrowser
-                        console.print()
-                        console.print(f"[cyan]Opening: {selected_result.get('title', 'result')}[/cyan]")
-                        console.print(f"[dim]{url}[/dim]\n")
-                        webbrowser.open(url)
-                    else:
-                        console.print("[red]No URL found for this result.[/red]\n")
+                    if selected_index is not None:
+                        selected_result = results[selected_index]
+                        url = selected_result.get('href', selected_result.get('link', ''))
+                        
+                        if url:
+                            import webbrowser
+                            console.print()
+                            console.print(f"[cyan]Opening: {selected_result.get('title', 'result')}[/cyan]")
+                            console.print(f"[dim]{url}[/dim]\n")
+                            webbrowser.open(url)
+                        else:
+                            console.print("[red]No URL found for this result.[/red]\n")
+                except (KeyboardInterrupt, EOFError):
+                    # User pressed Esc or Ctrl+C to cancel
+                    console.print("\n[dim]Cancelled.[/dim]\n")
+                    return
             
             except ImportError:
                 # Fallback: numbered list
@@ -1807,19 +1817,39 @@ Request: "{request}"
             # Prepare options for pick library
             options = []
             for i, place in enumerate(places, 1):
-                # Build display string
-                display = f"{place.name}"
+                display_parts = [place.name]
                 
-                # Add rating if available
+                # Rating summary
                 if place.rating:
                     stars = "⭐" * int(round(place.rating))
-                    display += f" {stars} {place.rating}"
+                    rating_text = f"{stars} {place.rating}"
                     if place.user_ratings_total:
-                        display += f" ({place.user_ratings_total} reviews)"
+                        rating_text += f" ({place.user_ratings_total} reviews)"
+                    display_parts.append(rating_text)
                 
-                # Truncate if too long
-                if len(display) > 80:
-                    display = display[:77] + "..."
+                # Open/closed status
+                if place.opening_hours:
+                    status = "🟢 Open now" if place.opening_hours.get('open_now') else "🔴 Closed"
+                    display_parts.append(status)
+                
+                # Address or vicinity
+                address = place.address or place.vicinity
+                if address:
+                    display_parts.append(address)
+                
+                # Price level
+                if place.price_level is not None:
+                    display_parts.append(place.get_price_string())
+                
+                # Build main line
+                display = " • ".join(display_parts)
+                
+                # Add editorial summary if available
+                if place.editorial_summary:
+                    summary = place.editorial_summary.strip()
+                    if len(summary) > 80:
+                        summary = summary[:77] + "..."
+                    display += f" — {summary}"
                 
                 options.append(display)
             
@@ -1828,11 +1858,16 @@ Request: "{request}"
                 from pick import pick
                 
                 title = "Use ↑/↓ arrows to navigate, Enter for details, Esc to cancel"
-                selected_option, selected_index = pick(options, title, indicator="→")
-                
-                if selected_index is not None:
-                    selected_place = places[selected_index]
-                    self._show_place_details(selected_place, places_client)
+                try:
+                    selected_option, selected_index = pick(options, title, indicator="→")
+                    
+                    if selected_index is not None:
+                        selected_place = places[selected_index]
+                        self._show_place_details(selected_place, places_client)
+                except (KeyboardInterrupt, EOFError):
+                    # User pressed Esc or Ctrl+C to cancel
+                    console.print("\n[dim]Cancelled.[/dim]\n")
+                    return
             
             except ImportError:
                 # Fallback: numbered list
@@ -1848,19 +1883,28 @@ Request: "{request}"
                         review_text = f" ({place.user_ratings_total} reviews)" if place.user_ratings_total else ""
                         console.print(f"   {stars} {place.rating}{review_text}")
                     
+                    # Show open/closed status prominently
+                    if place.opening_hours:
+                        if place.opening_hours.get('open_now'):
+                            console.print(f"   [green]🕐 Open now[/green]")
+                        else:
+                            console.print(f"   [red]🕐 Closed[/red]")
+                    
                     # Show address
                     address = place.address or place.vicinity or "Address unknown"
                     console.print(f"   [dim]📍 {address}[/dim]")
                     
-                    # Show status and price
-                    status_parts = []
-                    if place.opening_hours:
-                        status = place.get_status_string()
-                        status_parts.append(status)
+                    # Show price if available
                     if place.price_level is not None:
-                        status_parts.append(place.get_price_string())
-                    if status_parts:
-                        console.print(f"   [dim]{' • '.join(status_parts)}[/dim]")
+                        console.print(f"   [dim]💰 {place.get_price_string()}[/dim]")
+                    
+                    # Show editorial summary if available
+                    if place.editorial_summary:
+                        # Truncate if too long
+                        summary = place.editorial_summary
+                        if len(summary) > 100:
+                            summary = summary[:97] + "..."
+                        console.print(f"   [dim italic]{summary}[/dim italic]")
                     
                     console.print()
                 
@@ -2052,11 +2096,16 @@ Request: "{request}"
             from pick import pick
             
             title = ""
-            selected_option, selected_index = pick(options, title, indicator="→")
-            
-            if selected_index is not None:
-                selected_project = projects[selected_index]
-                self._open_project_view(selected_project)
+            try:
+                selected_option, selected_index = pick(options, title, indicator="→")
+                
+                if selected_index is not None:
+                    selected_project = projects[selected_index]
+                    self._open_project_view(selected_project)
+            except (KeyboardInterrupt, EOFError):
+                # User pressed Esc or Ctrl+C to cancel
+                console.print("\n[dim]Cancelled.[/dim]\n")
+                return
         except ImportError:
             # Fallback: numbered list
             console.print("[yellow]Install 'pick' for arrow key navigation: pip install pick[/yellow]")
