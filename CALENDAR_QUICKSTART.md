@@ -1,6 +1,6 @@
-# Google Calendar Integration - Quick Start
+# Google Calendar & Gmail Integration - Quick Start
 
-I've added full Google Calendar integration to your Focus Assistant! 📅
+I've added full Google Calendar **and Gmail** integration to your Focus Assistant! 📅 ✉️
 
 ## ✅ What's Been Implemented
 
@@ -28,11 +28,21 @@ I've added full Google Calendar integration to your Focus Assistant! 📅
 > what do I have this weekend?
 ```
 
+**Inbox Superpowers:**
+```bash
+./focus inbox           # Show unread Gmail messages
+./focus email 1         # Read the first unread email
+./focus reply 1         # Draft & send a reply with AI
+./focus archive 1 2 3   # Archive multiple emails at once
+./focus cleanup         # Auto-detect newsletters and archive them
+```
+
 ### Automatic Integration
 
 - **Morning Routine** now shows today's calendar events
 - **Chat Assistant** knows your calendar schedule when answering questions
 - **Natural Language** works everywhere: "am I free tomorrow afternoon?"
+- **Inbox Assistant** can summarize unread email, draft replies, and help clear newsletters
 
 ## 🚀 Getting Started
 
@@ -44,17 +54,18 @@ The required Google Calendar libraries have been installed:
 - `google-auth-httplib2`
 - `google-api-python-client`
 
-### 2. Set Up Google Calendar (5 minutes)
+### 2. Set Up Google Calendar & Gmail (5 minutes)
 
 Follow the detailed guide: **[GOOGLE_CALENDAR_SETUP.md](GOOGLE_CALENDAR_SETUP.md)**
 
 Quick summary:
 1. Create a Google Cloud project
 2. Enable Google Calendar API
-3. Create OAuth credentials
-4. Download credentials JSON file
-5. Save it to `~/.focus_assistant/google_credentials.json`
-6. Run `./focus calendar` to authenticate
+3. Enable Gmail API
+4. Create OAuth credentials
+5. Download credentials JSON file
+6. Save it to `~/.focus_assistant/google_credentials.json`
+7. Run `./focus calendar` to authenticate (this now covers Gmail too)
 
 ### 3. First Authentication
 
@@ -92,17 +103,24 @@ Once set up, try:
 ./focus morning
 # Now shows today's calendar events!
 
+# Email triage
+./focus inbox
+./focus email 1
+./focus reply 1
+./focus cleanup
+
 # Natural conversation
 ./focus
 > what do I have tomorrow?
 > schedule team sync Friday at 2pm
 > am I free this weekend?
+> any unread emails I should prioritize?
 ```
 
 ## ⚠️ Before Setup
 
-Until you complete the Google Calendar setup:
-- Calendar commands will show a "not configured" message
+Until you complete the Google integration:
+- Calendar & Gmail commands will show a "not configured" message
 - Everything else works normally
 - This is completely optional!
 
@@ -122,8 +140,9 @@ Once configured:
 - Create events with natural language
 - The assistant knows when you're busy
 - Morning routine includes today's calendar
-- Plan your day around meetings
-- Never miss an appointment!
+- View unread emails, draft replies, and archive newsletters
+- Plan your day and your inbox from the same CLI
+- Never miss an appointment or important email!
 
 Ready to set it up? Start with [GOOGLE_CALENDAR_SETUP.md](GOOGLE_CALENDAR_SETUP.md)!
 

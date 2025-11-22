@@ -4,19 +4,19 @@ import { useNavigate } from 'react-router-dom'
 const API_URL = 'http://localhost:5555'
 
 export default function WriteNote() {
-  const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [projects, setProjects] = useState([])
   const [selectedProject, setSelectedProject] = useState('')
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState('')
-  const titleRef = useRef(null)
+  const [showPreview, setShowPreview] = useState(false)
+  const contentRef = useRef(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     loadProjects()
-    // Auto-focus title input
-    titleRef.current?.focus()
+    // Auto-focus content textarea
+    contentRef.current?.focus()
   }, [])
 
   async function loadProjects() {
@@ -45,7 +45,6 @@ export default function WriteNote() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: title.trim() || content.substring(0, 50) + '...',
           content: content.trim(),
           project_id: selectedProject || null
         })
@@ -57,11 +56,10 @@ export default function WriteNote() {
       
       // Clear form after brief delay
       setTimeout(() => {
-        setTitle('')
         setContent('')
         setSelectedProject('')
         setStatus('')
-        titleRef.current?.focus()
+        contentRef.current?.focus()
       }, 1000)
     } catch (err) {
       setStatus('Error: ' + err.message)
@@ -76,33 +74,37 @@ export default function WriteNote() {
       e.preventDefault()
       handleSave()
     }
+    // Cmd/Ctrl + P to toggle preview
+    if ((e.metaKey || e.ctrlKey) && e.key === 'p') {
+      e.preventDefault()
+      setShowPreview(!showPreview)
+    }
   }
 
   return (
     <div className="container" onKeyDown={handleKeyDown}>
       <div className="header">
-        <h1>📝 Write Note</h1>
-        <p>Create a new markdown note</p>
+        <div className="header-title-row">
+          <div>
+            <h1>📝 Write Note</h1>
+            <p>Create a new markdown note</p>
+          </div>
+          <button 
+            className="toggle-preview-btn"
+            onClick={() => setShowPreview(!showPreview)}
+          >
+            {showPreview ? '📝 Hide Preview' : '👁️ Show Preview'}
+          </button>
+        </div>
       </div>
 
-      <div className="write-note-content">
+      <div className="content">
+        <div className={`write-note-content ${showPreview ? 'with-preview' : 'no-preview'}`}>
         <div className="editor-section">
           <div className="form-group">
-            <label htmlFor="title">Title (optional)</label>
-            <input
-              ref={titleRef}
-              id="title"
-              type="text"
-              className="title-input"
-              placeholder="Note title..."
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="content">Content *</label>
+            <label htmlFor="content">Markdown Note</label>
             <textarea
+              ref={contentRef}
               id="content"
               className="content-textarea"
               placeholder="Write your note here using markdown...
@@ -146,7 +148,7 @@ Examples:
 
           <div className="actions">
             <div className={`status ${status.startsWith('✓') ? 'success' : status.startsWith('Error') ? 'error' : ''}`}>
-              {status || '💡 Tip: Press Cmd/Ctrl+S to save'}
+              {status || '💡 Tip: Cmd/Ctrl+S to save • Cmd/Ctrl+P to toggle preview'}
             </div>
             <button
               className="btn-save"
@@ -158,16 +160,18 @@ Examples:
           </div>
         </div>
 
-        <div className="preview-section">
-          <label>Preview</label>
-          <div className="preview">
-            {title && <h1>{title}</h1>}
-            {content ? (
-              <div dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
-            ) : (
-              <p className="preview-placeholder">Preview will appear here...</p>
-            )}
+        {showPreview && (
+          <div className="preview-section">
+            <label>Preview</label>
+            <div className="preview">
+              {content ? (
+                <div dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
+              ) : (
+                <p className="preview-placeholder">Preview will appear here...</p>
+              )}
+            </div>
           </div>
+        )}
         </div>
       </div>
     </div>

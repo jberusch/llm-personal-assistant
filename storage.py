@@ -267,31 +267,24 @@ class Storage:
         if notes_match:
             notes_text = notes_match.group(1).strip()
             
-            # Parse individual notes (format: ### HH:MM AM/PM - Title `#ProjectName`\nContent...)
+            # Parse individual notes (format: ### HH:MM AM/PM `#ProjectName`\nContent...)
             # Content goes until the next ### heading or end of notes section
-            note_pattern = r'### ([\d:]+\s*[AP]M) - (.*?)\n(.*?)(?=\n###|\Z)'
+            note_pattern = r'### ([\d:]+\s*[AP]M)\s*(?:`#([^`]+)`)?\n(.*?)(?=\n###|\Z)'
             for match in re.finditer(note_pattern, notes_text, re.DOTALL):
                 timestamp = match.group(1).strip()
-                title_with_tag = match.group(2).strip()
+                project_name = match.group(2)  # Captured project name from `#ProjectName`
                 content = match.group(3).strip()
                 
-                # Extract project tag if present (format: `#ProjectName`)
+                # Find project by name if present
                 project_id = None
-                title = title_with_tag
-                project_tag_match = re.search(r'`#([^`]+)`', title_with_tag)
-                if project_tag_match:
-                    project_name = project_tag_match.group(1)
-                    # Look up project by name
+                if project_name:
                     projects = self.load_projects()
                     project = next((p for p in projects if p.name == project_name), None)
                     if project:
                         project_id = project.id
-                    # Remove the tag from title
-                    title = re.sub(r'\s*`#[^`]+`', '', title_with_tag).strip()
                 
                 journal_data["notes"].append({
                     "timestamp": timestamp,
-                    "title": title,
                     "content": content,
                     "project_id": project_id
                 })
@@ -401,7 +394,6 @@ day: {day_name}
             
             for note in data["notes"]:
                 timestamp = note.get("timestamp", "")
-                title = note.get("title", "Untitled Note")
                 note_content = note.get("content", "")
                 project_id = note.get("project_id")
                 
@@ -411,11 +403,11 @@ day: {day_name}
                     projects = self.load_projects()
                     project_name = next((p.name for p in projects if p.id == project_id), None)
                     if project_name:
-                        content += f"### {timestamp} - {title} `#{project_name}`\n{note_content}\n\n"
+                        content += f"### {timestamp} `#{project_name}`\n{note_content}\n\n"
                     else:
-                        content += f"### {timestamp} - {title}\n{note_content}\n\n"
+                        content += f"### {timestamp}\n{note_content}\n\n"
                 else:
-                    content += f"### {timestamp} - {title}\n{note_content}\n\n"
+                    content += f"### {timestamp}\n{note_content}\n\n"
             
             content += "---\n\n"
         
@@ -528,7 +520,7 @@ day: {day_name}
         except Exception:
             pass  # Embeddings are optional
     
-    def add_note_to_journal(self, title: str, content: str, project_id: Optional[str] = None, date: Optional[datetime] = None):
+    def add_note_to_journal(self, content: str, project_id: Optional[str] = None, date: Optional[datetime] = None):
         """Add a note to today's journal."""
         journal = self.load_journal(date)
         
@@ -540,7 +532,6 @@ day: {day_name}
         now = datetime.now()
         note_entry = {
             "timestamp": now.strftime("%I:%M %p"),
-            "title": title,
             "content": content,
             "project_id": project_id
         }

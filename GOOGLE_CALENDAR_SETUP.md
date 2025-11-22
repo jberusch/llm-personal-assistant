@@ -1,6 +1,6 @@
 # Google Calendar Setup Guide
 
-This guide will help you connect your Focus Assistant to Google Calendar in about 5 minutes.
+This guide will help you connect your Focus Assistant to Google Calendar **and Gmail** in about 5 minutes.
 
 ## Quick Overview
 
@@ -27,7 +27,13 @@ You'll need to:
 4. Click on **Google Calendar API** in the results
 5. Click the **Enable** button
 
-### Step 3: Create OAuth Credentials
+### Step 3: Enable Gmail API
+
+1. Still in the same project, go back to **APIs & Services > Library**
+2. Search for **"Gmail API"**
+3. Click **Enable**
+
+### Step 4: Create OAuth Credentials
 
 1. Go to **APIs & Services > Credentials** (or click [this link](https://console.cloud.google.com/apis/credentials))
 2. Click **"+ CREATE CREDENTIALS"** at the top
@@ -53,6 +59,9 @@ If this is your first time, you'll need to configure the OAuth consent screen:
 > **403 / access_denied error?**  
 > If Google says *"the app is being tested and only developer-approved testers can use it"*, it means your Google account is not listed under **Test users** on the OAuth consent screen. Add the email address you use to sign in to Google (Step 7) and try again.
 
+> **Already connected calendar but adding Gmail now?**  
+> Delete `~/.focus_assistant/google_token.pickle` so the new Gmail permissions can be applied the next time you authenticate.
+
 #### Create OAuth Client ID
 
 Now create the credentials:
@@ -64,13 +73,13 @@ Now create the credentials:
 5. Click **"Create"**
 6. A dialog will appear with your credentials - click **"OK"**
 
-### Step 4: Download Credentials
+### Step 5: Download Credentials
 
 1. On the Credentials page, find your newly created OAuth 2.0 Client ID
 2. Click the **download icon** (⬇️) on the right side
 3. A JSON file will download (named something like `client_secret_xxxxx.json`)
 
-### Step 5: Move Credentials File
+### Step 6: Move Credentials File
 
 Move the downloaded JSON file to your Focus Assistant directory:
 
@@ -86,7 +95,7 @@ Or manually:
 1. Rename the file to `google_credentials.json`
 2. Move it to `~/.focus_assistant/google_credentials.json`
 
-### Step 6: Authenticate
+### Step 7: Authenticate
 
 Now run the Focus Assistant with a calendar command:
 
@@ -207,7 +216,7 @@ Check:
 
 By default, events are created in `America/Los_Angeles` timezone. To change this:
 
-Edit `calendar_integration.py` and find this section:
+Edit `google_integration.py` and find this section:
 
 ```python
 'timeZone': 'America/Los_Angeles',
@@ -217,12 +226,14 @@ Change it to your timezone (e.g., `America/New_York`, `Europe/London`, `Asia/Tok
 
 ## What Next?
 
-Once configured, the calendar integration works seamlessly:
+Once configured, the Google integration works seamlessly:
 
-- ✅ Morning routine shows today's events
+- ✅ Morning routine shows today's calendar events
 - ✅ Assistant knows your schedule when you ask questions  
 - ✅ Create events with natural language
 - ✅ View events without leaving the terminal
+- ✅ Review unread Gmail messages with `/inbox`
+- ✅ Draft replies with `/reply` and bulk clean newsletters with `/cleanup`
 
-Enjoy your calendar-aware assistant! 📅
+Enjoy your calendar- and email-aware assistant! 📅✉️
 

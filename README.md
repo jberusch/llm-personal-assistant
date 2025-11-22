@@ -146,6 +146,29 @@ See **[GOOGLE_CALENDAR_SETUP.md](GOOGLE_CALENDAR_SETUP.md)** for detailed setup 
 
 The assistant automatically knows your calendar and includes it when answering questions!
 
+### Gmail Inbox (Optional)
+
+Once your Google integration is set up (same steps as calendar), you can triage email without leaving the CLI:
+
+```bash
+./focus inbox           # Show unread Gmail messages
+./focus email 1         # Read the first unread email
+./focus reply 1         # Draft & send a reply with AI
+./focus archive 1 2 3   # Archive multiple emails
+./focus cleanup         # Bulk archive newsletter-style emails
+```
+
+Inside the interactive mode:
+
+```
+> /inbox
+> /email 2
+> /reply 2
+> /cleanup
+```
+
+You may need to delete `~/.focus_assistant/google_token.pickle` and re-run `./focus calendar` once so the new Gmail permissions are applied.
+
 ### Evening Reflection
 End your day with reflection:
 ```bash

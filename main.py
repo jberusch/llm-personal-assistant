@@ -291,9 +291,9 @@ def calendar(timeframe):
         focus calendar week       # Show this week
     """
     try:
-        from calendar_integration import calendar_integration
+        from google_integration import google_integration
         
-        if (not calendar_integration) or (not calendar_integration.is_configured()):
+        if (not google_integration) or (not google_integration.is_configured()):
             console.print("\n[yellow]⚠️  Google Calendar not configured yet[/yellow]")
             console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
             return
@@ -301,22 +301,22 @@ def calendar(timeframe):
         timeframe = timeframe.lower().strip()
         
         if timeframe in ['today', '']:
-            events = calendar_integration.get_events_today()
+            events = google_integration.get_events_today()
             title = "📅 Today's Calendar"
         elif timeframe == 'tomorrow':
-            events = calendar_integration.get_events_tomorrow()
+            events = google_integration.get_events_tomorrow()
             title = "📅 Tomorrow's Calendar"
         elif timeframe in ['weekend', 'this_weekend']:
-            events = calendar_integration.get_weekend_events()
+            events = google_integration.get_weekend_events()
             title = "📅 This Weekend"
         elif timeframe in ['week', 'this_week']:
-            events = calendar_integration.get_events_this_week()
+            events = google_integration.get_events_this_week()
             title = "📅 This Week"
         else:
             console.print("[yellow]Usage: focus calendar [today|tomorrow|weekend|week][/yellow]\n")
             return
         
-        formatted = calendar_integration.format_events_for_display(events)
+        formatted = google_integration.format_events_for_display(events)
         console.print()
         console.print(Panel(formatted, title=title, border_style="cyan"))
         console.print()
@@ -344,13 +344,13 @@ def schedule(event_description):
         return
     
     try:
-        from calendar_integration import calendar_integration
+        from google_integration import google_integration
         from assistant import Assistant
         from datetime import timedelta
         from dateutil.parser import parse as parse_date
         import json
         
-        if (not calendar_integration) or (not calendar_integration.is_configured()):
+        if (not google_integration) or (not google_integration.is_configured()):
             console.print("\n[yellow]⚠️  Google Calendar not configured yet[/yellow]")
             console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
             return
@@ -392,7 +392,7 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
         end_time = start_time + timedelta(hours=duration_hours)
         
         # Create the event
-        created_event = calendar_integration.create_event(
+        created_event = google_integration.create_event(
             summary=event_data['summary'],
             start_time=start_time,
             end_time=end_time,

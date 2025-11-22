@@ -6,6 +6,7 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.table import Table
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.styles import Style as PromptStyle
@@ -21,13 +22,13 @@ from config import config
 
 console = Console()
 
-# Try to import calendar integration (may not be configured)
+# Try to import Google integrations (may not be configured)
 try:
-    from calendar_integration import calendar_integration
-    CALENDAR_AVAILABLE = calendar_integration is not None
+    from google_integration import google_integration
+    GOOGLE_AVAILABLE = google_integration is not None
 except ImportError:
-    CALENDAR_AVAILABLE = False
-    calendar_integration = None
+    GOOGLE_AVAILABLE = False
+    google_integration = None
 
 
 class InteractiveSession:
@@ -48,6 +49,11 @@ class InteractiveSession:
             '/log': self.cmd_log,
             '/calendar': self.cmd_calendar,
             '/schedule': self.cmd_schedule,
+            '/inbox': self.cmd_inbox,
+            '/email': self.cmd_email,
+            '/reply': self.cmd_reply,
+            '/archive': self.cmd_archive_email,
+            '/cleanup': self.cmd_cleanup_inbox,
             '/search': self.cmd_search,
             '/projects': self.cmd_projects,
             '/stats': self.cmd_stats,
@@ -70,6 +76,11 @@ class InteractiveSession:
             '/log': 'Open daily journal in web editor',
             '/calendar': 'View calendar events',
             '/schedule': 'Create a calendar event',
+            '/inbox': 'View unread Gmail messages',
+            '/email': 'Read a specific email',
+            '/reply': 'Draft and send a reply',
+            '/archive': 'Archive or mark emails as read',
+            '/cleanup': 'Bulk clean unwanted emails',
             '/search': 'Search your notes, tasks, and projects',
             '/projects': 'View all your projects',
             '/stats': 'Show productivity statistics',
@@ -109,6 +120,7 @@ class InteractiveSession:
         self.prompt_style = PromptStyle.from_dict({
             'prompt': '#00ff00 bold',  # Green prompt like terminal
         })
+        self.inbox_cache: List[Dict[str, Any]] = []
         self.session = PromptSession(
             history=self.history,
             style=self.prompt_style,
@@ -181,7 +193,7 @@ class InteractiveSession:
                 
                 # Print separator line below input
                 console.print(f"[dim]{'─' * terminal_width}[/dim]\n")
-
+                
                 # Check if it's a command
                 if user_input.startswith('/'):
                     self._handle_command(user_input)
@@ -535,9 +547,8 @@ class InteractiveSession:
             # Prompt for project assignment
             project_id = self._prompt_for_project_assignment()
             
-            # Save as a note entry
-            title = note_text[:50] + "..." if len(note_text) > 50 else note_text
-            storage.add_note_to_journal(title, note_text, project_id=project_id)
+            # Save note
+            storage.add_note_to_journal(note_text, project_id=project_id)
             
             if project_id:
                 from projects import project_manager
@@ -602,7 +613,7 @@ class InteractiveSession:
     
     def cmd_calendar(self, args: str):
         """View calendar events."""
-        if (not CALENDAR_AVAILABLE) or (not calendar_integration.is_configured()):
+        if (not GOOGLE_AVAILABLE) or (not google_integration.is_configured()):
             console.print()
             console.print("[yellow]⚠️  Google Calendar not configured yet[/yellow]")
             console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
@@ -614,28 +625,28 @@ class InteractiveSession:
         args = args.strip().lower()
         
         if not args or args == 'today':
-            events = calendar_integration.get_events_today()
+            events = google_integration.get_events_today()
             title = "📅 Today's Calendar"
         elif args == 'tomorrow':
-            events = calendar_integration.get_events_tomorrow()
+            events = google_integration.get_events_tomorrow()
             title = "📅 Tomorrow's Calendar"
         elif args in ['weekend', 'this weekend']:
-            events = calendar_integration.get_weekend_events()
+            events = google_integration.get_weekend_events()
             title = "📅 This Weekend"
         elif args in ['week', 'this week']:
-            events = calendar_integration.get_events_this_week()
+            events = google_integration.get_events_this_week()
             title = "📅 This Week"
         else:
             console.print("[yellow]Usage: /calendar [today|tomorrow|weekend|week][/yellow]\n")
             return
         
-        formatted = calendar_integration.format_events_for_display(events)
+        formatted = google_integration.format_events_for_display(events)
         console.print(Panel(formatted, title=title, border_style="cyan"))
         console.print()
     
     def cmd_schedule(self, args: str):
         """Create a calendar event using natural language."""
-        if (not CALENDAR_AVAILABLE) or (not calendar_integration.is_configured()):
+        if (not GOOGLE_AVAILABLE) or (not google_integration.is_configured()):
             console.print()
             console.print("[yellow]⚠️  Google Calendar not configured yet[/yellow]")
             console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
@@ -686,7 +697,7 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
             end_time = start_time + timedelta(hours=duration_hours)
             
             # Create the event
-            created_event = calendar_integration.create_event(
+            created_event = google_integration.create_event(
                 summary=event_data['summary'],
                 start_time=start_time,
                 end_time=end_time,
@@ -705,6 +716,297 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
             console.print(f"[red]Error creating event: {e}[/red]")
         
         console.print()
+
+    def cmd_inbox(self, args: str):
+        """List unread Gmail messages."""
+        if not self._check_google_ready():
+            return
+        
+        count = 10
+        arg = args.strip()
+        if arg:
+            try:
+                count = max(1, min(50, int(arg)))
+            except ValueError:
+                console.print("[red]Please provide a number for how many emails to show.[/red]\n")
+                return
+        
+        console.print()
+        try:
+            emails = google_integration.list_unread_emails(max_results=count)
+        except Exception as e:
+            console.print(f"[red]Error loading inbox: {e}[/red]\n")
+            return
+        
+        self.inbox_cache = emails
+        if not emails:
+            console.print("[dim]Inbox is clear! 🎉[/dim]\n")
+            return
+        
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("From", style="cyan")
+        table.add_column("Subject", style="white")
+        table.add_column("Received", style="dim", width=24)
+        
+        for idx, email in enumerate(emails, 1):
+            table.add_row(
+                str(idx),
+                email.get('from_name', 'Unknown'),
+                email.get('subject', '(No subject)'),
+                email.get('date', ''),
+            )
+        
+        console.print(table)
+        console.print("[dim]Use /email 1 or /reply 1 to read or respond.[/dim]\n")
+
+    def cmd_email(self, args: str):
+        """Read a specific email."""
+        ref = args.strip()
+        if not ref:
+            console.print("[yellow]Usage: /email <index_or_id>[/yellow]\n")
+            return
+        
+        if not self._check_google_ready():
+            return
+        
+        summary = self._resolve_email_reference(ref)
+        if not summary:
+            console.print(f"[red]Email '{ref}' not found.[/red]\n")
+            return
+        
+        message = google_integration.get_email(summary['id'])
+        if not message:
+            console.print("[red]Unable to load email content.[/red]\n")
+            return
+        
+        console.print()
+        console.print(Panel(
+            f"[bold]{message['subject']}[/bold]\n"
+            f"[cyan]{message['from_name']}[/cyan] <{message['from_email']}>\n"
+            f"[dim]{message['date']}[/dim]\n\n"
+            f"{message['body'] or '[dim](No body)'}",
+            title="📧 Email",
+            border_style="blue"
+        ))
+        console.print()
+
+    def cmd_reply(self, args: str):
+        """Draft and send a reply."""
+        ref = args.strip()
+        if not ref:
+            console.print("[yellow]Usage: /reply <index_or_id>[/yellow]\n")
+            return
+        
+        if not self._check_google_ready():
+            return
+        
+        summary = self._resolve_email_reference(ref)
+        if not summary:
+            console.print(f"[red]Email '{ref}' not found.[/red]\n")
+            return
+        
+        message = google_integration.get_email(summary['id'])
+        if not message:
+            console.print("[red]Unable to load email content.[/red]\n")
+            return
+        
+        if self.assistant is None:
+            self.assistant = Assistant()
+        
+        console.print("[cyan]Drafting reply with AI...[/cyan]")
+        prompt = (
+            "Draft a concise, thoughtful reply in natural first-person voice.\n\n"
+            f"Subject: {message['subject']}\n"
+            f"From: {message['from_name']} <{message['from_email']}>\n"
+            f"Body:\n{message['body'] or message['snippet']}"
+        )
+        
+        try:
+            draft = self.assistant.ask_question(prompt)
+        except Exception as e:
+            console.print(f"[red]Error drafting reply: {e}[/red]\n")
+            return
+        
+        console.print()
+        console.print(Panel(draft.strip(), title="✉️ Draft Reply", border_style="green"))
+        console.print()
+        
+        send = Prompt.ask("Send this reply?", choices=["y", "n"], default="y")
+        if send.lower() != 'y':
+            console.print("[yellow]Draft not sent.[/yellow]\n")
+            return
+        
+        subject = message['subject'] or "(No subject)"
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        
+        sent_id = google_integration.send_email(
+            to=message['from_email'],
+            subject=subject,
+            body=draft.strip(),
+            thread_id=message.get('threadId')
+        )
+        
+        if sent_id:
+            google_integration.mark_as_read(message['id'])
+            console.print(f"[green]✓ Reply sent![/green] [dim](message id: {sent_id})[/dim]\n")
+        else:
+            console.print("[red]Failed to send email.[/red]\n")
+
+    def cmd_archive_email(self, args: str):
+        """Archive one or more emails."""
+        refs = args.strip().split()
+        if not refs:
+            console.print("[yellow]Usage: /archive <index_or_id> [more...] [/yellow]\n")
+            return
+        
+        if not self._check_google_ready():
+            return
+        
+        archived = 0
+        for ref in refs:
+            summary = self._resolve_email_reference(ref)
+            if not summary:
+                console.print(f"[red]Email '{ref}' not found, skipping.[/red]")
+                continue
+            google_integration.archive_email(summary['id'])
+            archived += 1
+        
+        console.print(f"[green]Archived {archived} email(s).[/green]\n")
+
+    def cmd_cleanup_inbox(self, args: str):
+        """Suggest bulk cleanup for newsletters."""
+        if not self._check_google_ready():
+            return
+        
+        console.print("\n[cyan]Scanning inbox for newsletters...[/cyan]")
+        try:
+            emails = google_integration.list_unread_emails(max_results=50)
+        except Exception as e:
+            console.print(f"[red]Error scanning inbox: {e}[/red]\n")
+            return
+        
+        newsletters = [
+            email for email in emails
+            if not google_integration.should_keep_sender(email.get('from_email', ''))
+            and self._looks_like_newsletter(email)
+        ]
+        if not newsletters:
+            console.print("[green]Inbox looks good! No obvious newsletters detected.[/green]\n")
+            return
+        
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("From", style="cyan")
+        table.add_column("Subject", style="white")
+        
+        for idx, email in enumerate(newsletters, 1):
+            table.add_row(str(idx), email['from_name'], email['subject'])
+        
+        console.print(table)
+        
+        skip_input = Prompt.ask(
+            "Enter numbers to keep (e.g., 1,3) or press Enter to archive all",
+            default=""
+        ).strip()
+        skip_indices: Set[int] = set()
+        if skip_input:
+            skip_indices = self._parse_index_list(skip_input, len(newsletters))
+            if skip_indices:
+                for idx in sorted(skip_indices):
+                    email = newsletters[idx - 1]
+                    google_integration.remember_sender(email.get('from_email', ''))
+                newsletters = [
+                    email for i, email in enumerate(newsletters, 1) if i not in skip_indices
+                ]
+                console.print("[dim]Got it — I'll remember those senders for next time.[/dim]")
+        
+        if not newsletters:
+            console.print("[yellow]No emails selected for cleanup.[/yellow]\n")
+            return
+        
+        confirm = Prompt.ask(
+            f"Archive {len(newsletters)} newsletter(s)?",
+            choices=['y', 'n'],
+            default='y'
+        )
+        if confirm.lower() != 'y':
+            console.print("[yellow]No changes made.[/yellow]\n")
+            return
+        
+        google_integration.bulk_archive([email['id'] for email in newsletters])
+        console.print(f"[green]✓ Archived {len(newsletters)} email(s).[/green]\n")
+
+    # ------------------------------------------------------------------
+    # Google helpers
+    # ------------------------------------------------------------------
+    def _check_google_ready(self) -> bool:
+        if not GOOGLE_AVAILABLE or google_integration is None:
+            console.print("\n[yellow]Google integrations are not available in this environment.[/yellow]\n")
+            return False
+        if not google_integration.is_configured():
+            console.print("\n[yellow]Google integration not configured yet[/yellow]")
+            console.print("[dim]See GOOGLE_CALENDAR_SETUP.md for setup instructions[/dim]\n")
+            return False
+        if not google_integration.has_token():
+            console.print("\n[yellow]Google authentication required[/yellow]")
+            console.print("[dim]Run `focus calendar` once to connect your account.[/dim]\n")
+            return False
+        return True
+
+    def _resolve_email_reference(self, ref: str) -> Optional[Dict[str, Any]]:
+        ref = ref.strip()
+        if not ref:
+            return None
+
+        if ref.isdigit() and self.inbox_cache:
+            idx = int(ref) - 1
+            if 0 <= idx < len(self.inbox_cache):
+                return self.inbox_cache[idx]
+
+        if self.inbox_cache:
+            for email in self.inbox_cache:
+                if email['id'].startswith(ref) or ref.lower() in email.get('subject', '').lower():
+                    return email
+
+        try:
+            message = google_integration.get_email(ref)
+            return message
+        except Exception:
+            return None
+
+    def _looks_like_newsletter(self, email_summary: Dict[str, Any]) -> bool:
+        subject = (email_summary.get('subject') or '').lower()
+        sender = (email_summary.get('from_email') or '').lower()
+        snippet = (email_summary.get('snippet') or '').lower()
+        if google_integration.should_keep_sender(sender):
+            return False
+        newsletter_keywords = ['newsletter', 'digest', 'update', 'sale', 'offer', 'unsubscribe']
+        sender_keywords = ['noreply', 'no-reply', 'notifications', 'mailer']
+
+        if any(word in subject for word in newsletter_keywords):
+            return True
+        if any(word in snippet for word in newsletter_keywords):
+            return True
+        if any(keyword in sender for keyword in sender_keywords):
+            return True
+        return False
+
+    def _parse_index_list(self, raw: str, max_index: int) -> Set[int]:
+        indices: Set[int] = set()
+        for part in raw.replace(' ', '').split(','):
+            if not part:
+                continue
+            if not part.isdigit():
+                console.print(f"[red]'{part}' is not a valid number.[/red]")
+                continue
+            idx = int(part)
+            if 1 <= idx <= max_index:
+                indices.add(idx)
+            else:
+                console.print(f"[red]{idx} is out of range (1-{max_index}).[/red]")
+        return indices
     
     def cmd_search(self, args: str):
         """Perform semantic search across journals, tasks, and projects."""
@@ -993,6 +1295,14 @@ Use 24-hour format. If no time is specified, use 09:00. If no date, use tomorrow
 ## Calendar (if configured)
 - `/calendar [today|tomorrow|weekend|week]` - View calendar events (interactive mode)
 - `/schedule <description>` - Create a calendar event (e.g., "team meeting tomorrow at 2pm")
+- `focus calendar [range]` / `focus schedule "<event>"` - Same commands from the CLI
+
+## Email & Inbox (if configured)
+- `/inbox [count]` - View unread Gmail messages
+- `/email <index|id>` - Read a specific email
+- `/reply <index|id>` - Draft & send a reply with AI
+- `/archive <index|id...>` - Archive or mark emails as read
+- `/cleanup` - Bulk archive newsletter-style emails
 
 ## Search & Projects
 - `/search <query>` - Search your notes, tasks, and projects semantically

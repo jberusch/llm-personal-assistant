@@ -13,13 +13,13 @@ from tasks import task_manager
 
 console = Console()
 
-# Try to import calendar integration (may not be configured)
+# Try to import Google integrations (may not be configured)
 try:
-    from calendar_integration import calendar_integration
-    CALENDAR_AVAILABLE = calendar_integration is not None
+    from google_integration import google_integration
+    GOOGLE_AVAILABLE = google_integration is not None
 except ImportError:
-    CALENDAR_AVAILABLE = False
-    calendar_integration = None
+    GOOGLE_AVAILABLE = False
+    google_integration = None
 
 
 class MorningRoutine:
@@ -91,12 +91,12 @@ class MorningRoutine:
     def _show_tasks(self):
         """Display current tasks and calendar events."""
         # Show calendar events if available
-        if CALENDAR_AVAILABLE and calendar_integration.is_configured() and calendar_integration.has_token():
+        if GOOGLE_AVAILABLE and google_integration.is_configured() and google_integration.has_token():
             try:
-                today_events = calendar_integration.get_events_today()
+                today_events = google_integration.get_events_today()
                 if today_events:
                     console.print("[bold magenta]📅 Today's Calendar:[/bold magenta]")
-                    formatted = calendar_integration.format_events_for_display(today_events)
+                    formatted = google_integration.format_events_for_display(today_events)
                     console.print(formatted)
                     console.print()
             except Exception:

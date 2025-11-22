@@ -133,7 +133,6 @@ export default function ProjectDetail() {
               {notes.map((note, idx) => (
                 <div key={idx} className="note-item">
                   <div className="note-header">
-                    <div className="note-title">{note.title}</div>
                     <div className="note-date">{note.date} {note.timestamp}</div>
                   </div>
                   <div className="note-content">{note.content}</div>

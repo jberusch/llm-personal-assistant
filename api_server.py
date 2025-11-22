@@ -49,19 +49,14 @@ def create_app():
             return '', 204
         try:
             data = request.get_json()
-            title = data.get('title', '').strip()
             content = data.get('content', '').strip()
             project_id = data.get('project_id')
             
             if not content:
                 return jsonify({'error': 'Content is required'}), 400
             
-            # Use first 50 chars of content as title if not provided
-            if not title:
-                title = content[:50] + ('...' if len(content) > 50 else '')
-            
             # Save note to journal
-            storage.add_note_to_journal(title, content, project_id=project_id)
+            storage.add_note_to_journal(content, project_id=project_id)
             
             return jsonify({'success': True, 'message': 'Note saved'})
         except Exception as e:

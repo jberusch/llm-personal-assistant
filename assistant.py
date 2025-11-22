@@ -7,13 +7,13 @@ import anthropic
 from config import config
 from storage import storage, JournalEntry
 
-# Try to import calendar integration (may not be configured)
+# Try to import Google integrations (may not be configured)
 try:
-    from calendar_integration import calendar_integration
-    CALENDAR_AVAILABLE = calendar_integration is not None
+    from google_integration import google_integration
+    GOOGLE_AVAILABLE = google_integration is not None
 except ImportError:
-    CALENDAR_AVAILABLE = False
-    calendar_integration = None
+    GOOGLE_AVAILABLE = False
+    google_integration = None
 
 
 class Assistant:
@@ -63,13 +63,13 @@ class Assistant:
             base_prompt += context
         
         # Add calendar context if available
-        if CALENDAR_AVAILABLE and calendar_integration.is_configured() and calendar_integration.has_token():
+        if GOOGLE_AVAILABLE and google_integration.is_configured() and google_integration.has_token():
             try:
                 # Get upcoming calendar events (next 7 days)
-                events = calendar_integration.get_events()
+                events = google_integration.get_events()
                 if events:
                     context = "\n\nUpcoming calendar events:\n"
-                    context += calendar_integration.format_events_for_llm(events)
+                    context += google_integration.format_events_for_llm(events)
                     base_prompt += context
             except Exception:
                 # Silently fail if calendar isn't accessible
