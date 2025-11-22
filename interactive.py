@@ -43,6 +43,8 @@ class InteractiveSession:
         self.running = False
         self.commands = {
             '/morning': self.cmd_morning,
+            '/morning-legacy': self.cmd_morning_legacy,
+            '/intention': self.cmd_intention,
             '/evening': self.cmd_evening,
             '/tasks': self.cmd_tasks,
             '/today': self.cmd_today,
@@ -61,6 +63,7 @@ class InteractiveSession:
             '/archive': self._email_archive,
             '/search': self.cmd_search,
             '/projects': self.cmd_projects,
+            '/tracker': self.cmd_tracker,
             '/stats': self.cmd_stats,
             '/config': self.cmd_config,
             '/help': self.cmd_help,
@@ -70,15 +73,17 @@ class InteractiveSession:
 
         # Command metadata for autocomplete with descriptions
         self.command_metadata = {
-            '/morning': 'Start your morning routine and plan the day',
+            '/morning': 'Complete morning flow (sleep, daily pages, intention)',
+            '/morning-legacy': 'Run legacy morning routine with questions',
+            '/intention': "View today's intention and priorities",
             '/evening': 'Reflect on your day with evening routine',
             '/today': "Show today's plan and main goal",
             '/tasks': 'View your task board (today, upcoming, inbox)',
             '/add': 'Add a new task',
             '/done': 'Mark a task as complete',
             '/note': 'Create a quick inline note',
-            '/write': 'Create a rich markdown note (opens in browser)',
-            '/log': 'Open daily journal in web editor',
+            '/write': 'Write a markdown note with preview (opens in browser)',
+            '/log': 'View your daily log (intention, pages, tasks, notes)',
             '/calendar': 'View calendar events',
             '/schedule': 'Create a calendar event',
             '/email': 'Email utilities (/email inbox/read/reply/cleanup)',
@@ -88,6 +93,7 @@ class InteractiveSession:
             '/cleanup': 'Legacy alias: bulk clean unwanted emails',
             '/search': 'Search your notes, tasks, and projects',
             '/projects': 'View all your projects',
+            '/tracker': 'View tracker history (e.g., /tracker sleep)',
             '/stats': 'Show productivity statistics',
             '/config': 'Configure API key and settings',
             '/help': 'Show help message',
@@ -175,6 +181,12 @@ class InteractiveSession:
         except ValueError as e:
             console.print(f"[red]Error initializing assistant: {e}[/red]")
             return
+        
+        # Check if morning flow needs to be completed
+        from routines import morning_routine
+        if not morning_routine.is_completed():
+            console.print("[yellow]Let's start your day with the morning flow...[/yellow]\n")
+            morning_routine.run()
         
         # Show context
         morning_entry = storage.get_morning_entry()
@@ -277,9 +289,52 @@ class InteractiveSession:
     # Command handlers
     
     def cmd_morning(self, args: str):
-        """Run morning routine."""
+        """Run morning flow (3-phase: sleep, daily pages, intention)."""
         console.print()
         morning_routine.run()
+        console.print()
+    
+    def cmd_morning_legacy(self, args: str):
+        """Run legacy morning routine."""
+        console.print()
+        from routines import legacy_morning_routine
+        legacy_morning_routine.run()
+        console.print()
+    
+    def cmd_intention(self, args: str):
+        """Display today's intention."""
+        console.print()
+        
+        journal = storage.load_journal()
+        intention = journal.get("intention")
+        
+        if not intention:
+            console.print("[yellow]No intention set yet for today.[/yellow]")
+            console.print("[dim]Run /morning to set your intention.[/dim]\n")
+            return
+        
+        from rich.panel import Panel
+        from rich.markdown import Markdown
+        
+        summary = ""
+        if intention.get("intention"):
+            summary += f"**Intention:** {intention['intention']}\n\n"
+        if intention.get("priorities"):
+            summary += f"**Key Priorities:** {intention['priorities']}\n\n"
+        if intention.get("joy"):
+            summary += f"**Bring Joy:** {intention['joy']}\n\n"
+        
+        if not summary:
+            # Fallback if keys don't match - show whatever is in the intention dict
+            for key, value in intention.items():
+                if value:
+                    summary += f"**{key.title()}:** {value}\n\n"
+        
+        console.print(Panel(
+            Markdown(summary.strip()),
+            title="[bold cyan]Today's Intention[/bold cyan]",
+            border_style="cyan"
+        ))
         console.print()
     
     def cmd_evening(self, args: str):
@@ -576,45 +631,28 @@ class InteractiveSession:
         console.print("[green]✓ Opened note editor[/green]\n")
     
     def cmd_log(self, args: str):
-        """Open daily journal in web editor."""
+        """Open daily log in browser."""
         import webbrowser
-        import threading
         
         # Parse the date argument
-        target_date = None
-        if not args or args.lower() == 'today':
-            target_date = datetime.now()
-        else:
+        if args and args.strip() and args.lower() != 'today':
             try:
                 target_date = datetime.strptime(args.strip(), "%Y-%m-%d")
+                date_str = target_date.strftime("%Y-%m-%d")
+                url = f'http://localhost:5173/log/{date_str}'
             except ValueError:
                 console.print()
                 console.print(f"[red]Invalid date format. Use YYYY-MM-DD (e.g., 2025-11-20)[/red]\n")
                 return
+        else:
+            url = 'http://localhost:5173/log'
         
-        # Import and start the journal editor
-        try:
-            from note_editor import start_journal_editor
-            
-            console.print()
-            console.print(f"[cyan]Opening journal editor for {target_date.strftime('%Y-%m-%d')}...[/cyan]")
-            console.print("[dim]The editor will open in your browser[/dim]")
-            console.print("[dim]Press Ctrl+C here to stop the server[/dim]\n")
-            
-            # Start editor in a thread and open browser
-            def open_browser():
-                import time
-                time.sleep(1)  # Wait for server to start
-                webbrowser.open('http://localhost:5556')
-            
-            threading.Thread(target=open_browser, daemon=True).start()
-            start_journal_editor(target_date)
-            
-        except KeyboardInterrupt:
-            console.print("\n[cyan]Editor closed.[/cyan]\n")
-        except Exception as e:
-            console.print()
-            console.print(f"[red]Error starting editor: {e}[/red]\n")
+        console.print()
+        console.print("[cyan]Opening daily log in browser...[/cyan]")
+        console.print("[dim]Make sure the web app is running: cd web && npm run dev[/dim]\n")
+        
+        webbrowser.open(url)
+        console.print("[green]✓ Opened daily log[/green]\n")
     
     def cmd_calendar(self, args: str):
         """View calendar events."""
@@ -1535,6 +1573,20 @@ Request: "{request}"
         webbrowser.open(f'http://localhost:5173/projects/{project.id}')
         console.print(f"[green]✓ Opened {project.name}[/green]\n")
     
+    def cmd_tracker(self, args: str):
+        """View tracker history."""
+        from trackers import sleep_tracker
+        
+        console.print()
+        
+        tracker_name = args.strip().lower() if args.strip() else "sleep"
+        
+        if tracker_name == "sleep":
+            sleep_tracker.display_history(days=14)
+        else:
+            console.print(f"[red]Unknown tracker: {tracker_name}[/red]")
+            console.print("[dim]Available trackers: sleep[/dim]\n")
+    
     def cmd_stats(self, args: str):
         """Show productivity statistics."""
         console.print()
@@ -1584,7 +1636,8 @@ Request: "{request}"
 # Focus Assistant Commands
 
 ## Daily Routines
-- `/morning` - Start your morning routine and plan the day
+- `/morning` - Complete morning flow (sleep tracking, 750-word daily pages, intention)
+- `/intention` - View today's intention and priorities
 - `/evening` - Reflect on your day with evening routine
 - `/today` - Show today's plan and main goal
 
@@ -1594,6 +1647,10 @@ Request: "{request}"
 - `/add <task>` - Add a new task
 - `/done` - Mark a task as complete
 - `/stats` - Show productivity statistics
+
+## Tracking & Logs
+- `/tracker <name>` - View tracker history (e.g., `/tracker sleep`)
+- `/log [date]` - View your daily log (intention, pages, tasks, notes)
 
 ## Calendar (if configured)
 - `/calendar [today|tomorrow|weekend|week]` - View calendar events (interactive mode)
@@ -1609,12 +1666,11 @@ Request: "{request}"
 
 ## Search & Projects
 - `/search <query>` - Search your notes, tasks, and projects semantically
-- `/projects` - View all your projects
+- `/projects` - View all your projects (use arrows to navigate)
 
 ## Notes & Writing
 - `/note` - Create a quick inline note (no LLM response)
-- `/write` - Create a rich markdown note with preview (opens in browser)
-- `/log [date]` - Open your daily journal in web editor (today, or YYYY-MM-DD)
+- `/write` - Write a markdown note with live preview (opens in browser)
 
 ## Settings
 - `/config` - Configure API key and settings

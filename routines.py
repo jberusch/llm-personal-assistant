@@ -23,7 +23,133 @@ except ImportError:
 
 
 class MorningRoutine:
-    """Manages the morning check-in routine."""
+    """New structured morning flow with sleep, daily pages, and intention setting."""
+    
+    def run(self):
+        """Run the complete morning flow."""
+        console.print("\n[bold cyan]🌅 Good Morning Flow[/bold cyan]\n")
+        
+        # Check if already completed today
+        if self.is_completed():
+            console.print("[yellow]You've already completed your morning flow today.[/yellow]")
+            response = Prompt.ask("Would you like to do it again?", choices=["y", "n"], default="n")
+            if response == "n":
+                self._show_current_intention()
+                return
+            console.print()
+        
+        # Phase 1: Sleep Tracking
+        console.print("[bold]Phase 1/3: Sleep Tracking[/bold]\n")
+        from trackers import sleep_tracker
+        sleep_data = sleep_tracker.prompt_entries()
+        sleep_tracker.save_data(sleep_data)
+        console.print("[green]✓ Sleep data logged[/green]\n")
+        
+        # Phase 2: Daily Pages
+        console.print("[bold]Phase 2/3: Daily Pages[/bold]")
+        console.print("[dim]Write 750 words to clear your mind and start fresh[/dim]\n")
+        
+        editor_choice = Prompt.ask(
+            "Which editor would you like to use?",
+            choices=["neovim", "web"],
+            default="neovim"
+        )
+        
+        from daily_pages import daily_pages_editor
+        
+        if editor_choice == "neovim":
+            daily_pages_content = daily_pages_editor.open_neovim()
+        else:
+            daily_pages_content = daily_pages_editor.open_web()
+        
+        if daily_pages_content:
+            # Save to journal
+            journal = storage.load_journal()
+            journal["daily_pages"] = daily_pages_content
+            storage.save_journal(journal)
+            console.print("[green]✓ Daily pages saved to journal[/green]\n")
+        else:
+            console.print("[yellow]Continuing without daily pages...[/yellow]\n")
+        
+        # Phase 3: Intention Setting
+        console.print("[bold]Phase 3/3: Set Your Intention[/bold]\n")
+        
+        intention_data = {}
+        
+        console.print("[bold]What is your intention for today?[/bold]")
+        intention_data["intention"] = Prompt.ask("  ")
+        console.print()
+        
+        console.print("[bold]What are your key priorities today?[/bold]")
+        console.print("[dim](comma-separated)[/dim]")
+        intention_data["priorities"] = Prompt.ask("  ")
+        console.print()
+        
+        console.print("[bold]What's one thing that would bring you joy today?[/bold]")
+        intention_data["joy"] = Prompt.ask("  ")
+        console.print()
+        
+        # Save intention to journal
+        journal = storage.load_journal()
+        journal["intention"] = intention_data
+        journal["morning_flow_completed"] = True
+        storage.save_journal(journal)
+        
+        console.print("[bold green]✓ Morning flow complete![/bold green]\n")
+        
+        # Show summary
+        self._show_summary(intention_data)
+    
+    def is_completed(self) -> bool:
+        """Check if morning flow is completed for today (PST)."""
+        try:
+            journal = storage.load_journal()
+            return journal.get("morning_flow_completed", False)
+        except:
+            return False
+    
+    def _show_current_intention(self):
+        """Show today's intention if set."""
+        try:
+            journal = storage.load_journal()
+            intention = journal.get("intention")
+            
+            if intention:
+                console.print("\n[bold]Today's Intention:[/bold]\n")
+                if "intention" in intention:
+                    console.print(f"[cyan]Intention:[/cyan] {intention['intention']}")
+                if "priorities" in intention:
+                    console.print(f"[cyan]Priorities:[/cyan] {intention['priorities']}")
+                if "joy" in intention:
+                    console.print(f"[cyan]Bring Joy:[/cyan] {intention['joy']}")
+                console.print()
+        except:
+            pass
+    
+    def _show_summary(self, intention_data: Dict[str, str]):
+        """Show summary of morning flow."""
+        from rich.panel import Panel
+        from rich.markdown import Markdown
+        
+        summary = f"""## Your Day
+
+        **Intention:** {intention_data.get('intention', '')}
+
+        **Priorities:** {intention_data.get('priorities', '')}
+
+        **Bring Joy:** {intention_data.get('joy', '')}
+        """
+        
+        console.print(Panel(
+            Markdown(summary),
+            title="[bold cyan]Ready to Start Your Day[/bold cyan]",
+            border_style="cyan"
+        ))
+        console.print()
+
+
+class LegacyMorningRoutine:
+    """Original morning check-in routine (kept for reference)."""
     
     QUESTIONS = [
         "How did you sleep? What's your energy level (1-10)?",
@@ -34,7 +160,7 @@ class MorningRoutine:
     ]
     
     def run(self):
-        """Run the morning routine."""
+        """Run the legacy morning routine."""
         console.print("\n[bold cyan]🌅 Good morning! Let's plan your day.[/bold cyan]\n")
         
         # Check if morning routine already done today
@@ -145,12 +271,12 @@ My responses:
             
             prompt += """
 
-Please help me:
-1. Identify the top 2-3 priorities for today
-2. Suggest how to structure my day
-3. Offer any insights about what I'm avoiding or what might bring meaning
+            Please help me:
+            1. Identify the top 2-3 priorities for today
+            2. Suggest how to structure my day
+            3. Offer any insights about what I'm avoiding or what might bring meaning
 
-Keep it concise and actionable."""
+            Keep it concise and actionable."""
             
             response = assistant.ask_question(prompt)
             
@@ -232,5 +358,6 @@ class EveningRoutine:
 
 # Global instances
 morning_routine = MorningRoutine()
+legacy_morning_routine = LegacyMorningRoutine()
 evening_routine = EveningRoutine()
 

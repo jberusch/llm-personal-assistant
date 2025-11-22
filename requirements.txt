@@ -15,4 +15,5 @@ google-api-python-client>=2.100.0
 importlib-metadata>=6.8.0; python_version<"3.10"
 flask-cors>=4.0.0
 pick>=2.2.0
+pytz>=2024.1
 

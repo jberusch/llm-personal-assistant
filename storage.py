@@ -2,6 +2,7 @@
 
 import json
 import re
+import pytz
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Dict, Any
@@ -10,6 +11,18 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from config import config
+
+
+def get_pst_now() -> datetime:
+    """Get current datetime in PST timezone."""
+    pst = pytz.timezone('America/Los_Angeles')
+    return datetime.now(pst)
+
+
+def get_pst_date() -> datetime:
+    """Get current date in PST timezone (midnight)."""
+    pst_now = get_pst_now()
+    return pst_now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 class Project(BaseModel):
@@ -204,6 +217,9 @@ class Storage:
             "date": frontmatter.get("date", ""),
             "morning": None,
             "evening": None,
+            "intention": None,
+            "daily_pages": None,
+            "morning_flow_completed": frontmatter.get("morning_flow_completed", False),
             "chat_history": [],
             "notes": []
         }
@@ -261,6 +277,27 @@ class Storage:
             journal_data["evening"] = {
                 "metadata": {"responses": responses}
             }
+        
+        # Extract intention
+        intention_match = re.search(r'## Intention\n\n(.*?)(?=\n## |\Z)', main_content, re.DOTALL)
+        if intention_match:
+            intention_text = intention_match.group(1).strip()
+            intention_data = {}
+            
+            # Parse intention fields
+            # Format: **Field:** Value
+            field_pattern = r'\*\*(.*?):\*\*\s*(.*?)(?=\n\*\*|\Z)'
+            for match in re.finditer(field_pattern, intention_text, re.DOTALL):
+                field = match.group(1).strip()
+                value = match.group(2).strip()
+                intention_data[field] = value
+            
+            journal_data["intention"] = intention_data
+        
+        # Extract daily pages
+        daily_pages_match = re.search(r'## Daily Pages\n\n(.*?)(?=\n## |\Z)', main_content, re.DOTALL)
+        if daily_pages_match:
+            journal_data["daily_pages"] = daily_pages_match.group(1).strip()
         
         # Extract notes
         notes_match = re.search(r'## Notes\n\n(.*?)(?=\n\n---|\Z)', main_content, re.DOTALL)
@@ -335,9 +372,9 @@ class Storage:
         
         # Build YAML frontmatter
         frontmatter = f"""---
-date: {date_str}
-day: {day_name}
-"""
+            date: {date_str}
+            day: {day_name}
+        """
         
         # Add morning metadata to frontmatter
         if data.get("morning") and data["morning"].get("metadata"):
@@ -348,10 +385,34 @@ day: {day_name}
                 if energy:
                     frontmatter += f"energy: {energy}\n"
         
+        # Add morning flow completion flag
+        if data.get("morning_flow_completed"):
+            frontmatter += "morning_flow_completed: true\n"
+        
         frontmatter += "tags: [daily, journal]\n---\n\n"
         
         # Build content
         content = f"# {full_date}\n\n"
+        
+        # Intention (shows first if present)
+        if data.get("intention"):
+            content += "## Intention\n\n"
+            intention = data["intention"]
+            
+            if "intention" in intention:
+                content += f"**Intention:** {intention['intention']}\n\n"
+            if "priorities" in intention:
+                content += f"**Key Priorities:** {intention['priorities']}\n\n"
+            if "joy" in intention:
+                content += f"**Bring Joy:** {intention['joy']}\n\n"
+            
+            content += "---\n\n"
+        
+        # Daily Pages (after intention, before other content)
+        if data.get("daily_pages"):
+            content += "## Daily Pages\n\n"
+            content += data["daily_pages"] + "\n\n"
+            content += "---\n\n"
         
         # Morning Reflection
         if data.get("morning") and data["morning"].get("metadata", {}).get("responses"):
@@ -509,12 +570,28 @@ day: {day_name}
             notes = data.get("notes", [])
             for idx, note in enumerate(notes):
                 content = note.get("content", "")
-                title = note.get("title", "")
                 if content:
-                    # Combine title and content for better searchability
-                    note_text = f"{title}\n{content}" if title else content
                     embeddings_mgr.embed_journal_entry(
-                        date_str, f"note_{idx}", note_text, "note"
+                        date_str, f"note_{idx}", content, "note"
+                    )
+            
+            # Embed daily pages
+            if data.get("daily_pages"):
+                daily_pages = data["daily_pages"]
+                if daily_pages:
+                    embeddings_mgr.embed_journal_entry(
+                        date_str, "daily_pages", daily_pages, "daily_pages"
+                    )
+            
+            # Embed intention
+            if data.get("intention"):
+                intention = data["intention"]
+                intention_text = "\n".join([
+                    f"{k}: {v}" for k, v in intention.items() if v
+                ])
+                if intention_text:
+                    embeddings_mgr.embed_journal_entry(
+                        date_str, "intention", intention_text, "intention"
                     )
         
         except Exception:
