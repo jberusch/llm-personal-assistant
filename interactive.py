@@ -64,6 +64,8 @@ class InteractiveSession:
             '/search': self.cmd_search_router,
             '/places': self.cmd_places,
             '/projects': self.cmd_projects,
+            '/lists': self.cmd_lists,
+            '/list': self.cmd_list,
             '/open': self.cmd_open_web,
             '/tracker': self.cmd_tracker,
             '/stats': self.cmd_stats,
@@ -96,6 +98,8 @@ class InteractiveSession:
             '/search': 'Search the web or your history (/search web <query> or /search history <query>)',
             '/places': 'Find nearby places (cafes, restaurants, etc.)',
             '/projects': 'View all your projects',
+            '/lists': 'View all your persistent lists',
+            '/list': 'View or add items to a specific list',
             '/open': 'Open a URL in your browser (/open web <url>)',
             '/tracker': 'View tracker history (e.g., /tracker sleep)',
             '/stats': 'Show productivity statistics',
@@ -1428,6 +1432,7 @@ Request: "{request}"
             journals = [r for r in results if r.result_type == 'journal']
             tasks = [r for r in results if r.result_type == 'task']
             projects = [r for r in results if r.result_type == 'project']
+            list_items = [r for r in results if r.result_type == 'list_item']
             
             console.print(f"[bold cyan]🔍 Search Results for: {args}[/bold cyan]\n")
             
@@ -1475,6 +1480,21 @@ Request: "{request}"
                     name = result.metadata.get('name', 'Unknown')
                     similarity = int((1 - result.distance) * 100)
                     console.print(f"\n[blue]• {name}[/blue] [dim]({similarity}% match)[/dim]")
+                    console.print(f"[white]{result.content}[/white]")
+                
+                console.print()
+            
+            # Display list items
+            if list_items:
+                console.print("[bold magenta]📋 List Items[/bold magenta]")
+                for result in list_items[:5]:  # Limit to top 5
+                    similarity = int((1 - result.distance) * 100)
+                    
+                    # Parse content (format: "title | description | tags | notes | address")
+                    content_parts = result.content.split(" | ")
+                    title = content_parts[0] if content_parts else result.content
+                    
+                    console.print(f"\n[magenta]• {title}[/magenta] [dim]({similarity}% match)[/dim]")
                     console.print(f"[white]{result.content}[/white]")
                 
                 console.print()
@@ -2148,6 +2168,157 @@ Request: "{request}"
         webbrowser.open(f'http://localhost:5173/projects/{project.id}')
         console.print(f"[green]✓ Opened {project.name}[/green]\n")
     
+    def cmd_lists(self, args: str):
+        """Display all persistent lists."""
+        from lists import list_manager
+        from rich.table import Table
+        
+        console.print()
+        
+        lists = list_manager.get_all_lists()
+        
+        if not lists:
+            console.print("[dim]No lists yet.[/dim]")
+            console.print("[dim]Create one with: /list add \"<list name>\" \"<item>\"[/dim]\n")
+            return
+        
+        table = Table(title="[bold]📋 Your Lists[/bold]")
+        table.add_column("List Name", style="cyan")
+        table.add_column("Category", style="yellow")
+        table.add_column("Items", style="green")
+        table.add_column("Description", style="dim")
+        
+        for lst in lists:
+            items = list_manager.get_list_items(lst.name)
+            table.add_row(
+                lst.name,
+                lst.category,
+                str(len(items)),
+                lst.description or ""
+            )
+        
+        console.print(table)
+        console.print("\n[dim]Use /list \"<name>\" to view items[/dim]\n")
+    
+    def cmd_list(self, args: str):
+        """View or add items to a list."""
+        from lists import list_manager
+        from rich.table import Table
+        
+        if not args.strip():
+            console.print("[yellow]Usage:[/yellow]")
+            console.print("  /list \"<list name>\" - View items in a list")
+            console.print("  /list add \"<list name>\" \"<item title>\" [description] - Add item to list")
+            console.print("\n[dim]Examples:[/dim]")
+            console.print("  /list \"Places in SF\"")
+            console.print("  /list add \"Places in SF\" \"Tarragon Cafe\" They have jazz on friday evenings\n")
+            return
+        
+        # Check if this is an add command
+        if args.strip().lower().startswith('add '):
+            self._handle_list_add(args[4:].strip())  # Remove 'add ' prefix
+            return
+        
+        # Otherwise, view the list
+        # Parse list name (could be quoted or not)
+        import shlex
+        try:
+            parts = shlex.split(args)
+            list_name = parts[0] if parts else args.strip()
+        except:
+            list_name = args.strip().strip('"\'')
+        
+        console.print()
+        
+        lst = list_manager.get_list_by_name(list_name)
+        if not lst:
+            console.print(f"[yellow]List '{list_name}' not found.[/yellow]")
+            console.print(f"[dim]Create it with: /list add \"{list_name}\" \"<item>\"[/dim]\n")
+            return
+        
+        items = list_manager.get_list_items(list_name)
+        
+        if not items:
+            console.print(f"[bold cyan]📋 {lst.name}[/bold cyan]")
+            if lst.description:
+                console.print(f"[dim]{lst.description}[/dim]")
+            console.print("\n[dim]No items yet.[/dim]\n")
+            return
+        
+        console.print(f"[bold cyan]📋 {lst.name}[/bold cyan]")
+        if lst.description:
+            console.print(f"[dim]{lst.description}[/dim]")
+        console.print()
+        
+        for item in items:
+            console.print(f"[bold]• {item.title}[/bold]")
+            if item.description:
+                console.print(f"  {item.description}")
+            
+            # Show metadata if present
+            if item.metadata:
+                if "tags" in item.metadata and item.metadata["tags"]:
+                    tags_str = ", ".join(item.metadata["tags"])
+                    console.print(f"  [dim]Tags: {tags_str}[/dim]")
+                if "notes" in item.metadata and item.metadata["notes"]:
+                    console.print(f"  [dim]Notes: {item.metadata['notes']}[/dim]")
+                if "address" in item.metadata and item.metadata["address"]:
+                    console.print(f"  [dim]📍 {item.metadata['address']}[/dim]")
+                if "google_maps_url" in item.metadata and item.metadata["google_maps_url"]:
+                    console.print(f"  [dim]🔗 {item.metadata['google_maps_url']}[/dim]")
+            
+            console.print()
+    
+    def _handle_list_add(self, args: str):
+        """Handle adding an item to a list."""
+        from lists import list_manager
+        import shlex
+        
+        # Parse arguments: "list name" "item title" [description]
+        try:
+            parts = shlex.split(args)
+        except:
+            console.print("[red]Error parsing command. Use quotes for multi-word names.[/red]\n")
+            return
+        
+        if len(parts) < 2:
+            console.print("[red]Usage: /list add \"<list name>\" \"<item title>\" [description][/red]\n")
+            return
+        
+        list_name = parts[0]
+        item_title = parts[1]
+        description = " ".join(parts[2:]) if len(parts) > 2 else ""
+        
+        # Parse tags from description (look for #tag patterns)
+        import re
+        tags = re.findall(r'#(\w+)', description)
+        
+        # Parse notes (everything that's not tags)
+        notes = re.sub(r'#\w+\s*', '', description).strip()
+        
+        metadata = {}
+        if tags:
+            metadata["tags"] = tags
+        if notes:
+            metadata["notes"] = notes
+        
+        try:
+            item = list_manager.add_item(
+                list_name=list_name,
+                title=item_title,
+                description=description,
+                metadata=metadata
+            )
+            
+            console.print()
+            console.print(f"[green]✓ Added '{item_title}' to '{list_name}'[/green]")
+            if tags:
+                console.print(f"[dim]  Tags: {', '.join(tags)}[/dim]")
+            console.print()
+        
+        except Exception as e:
+            console.print(f"[red]Error adding item: {e}[/red]\n")
+    
     def cmd_tracker(self, args: str):
         """View tracker history."""
         from trackers import sleep_tracker
@@ -2272,10 +2443,13 @@ Request: "{request}"
 
 ## Search & Projects
 - `/search web <query> [results:N]` - Search DuckDuckGo (default 10 results, max 25)
-- `/search history <query>` - Search your notes, tasks, and projects semantically
+- `/search history <query>` - Search your notes, tasks, projects, and lists semantically
 - `/open web <url>` - Open a URL in your browser
 - `/places <query>` - Find nearby places (cafes, restaurants, bars, etc.)
 - `/projects` - View all your projects (use arrows to navigate)
+- `/lists` - View all your persistent lists
+- `/list "<name>"` - View items in a specific list
+- `/list add "<list>" "<item>" <notes>` - Add item to a list with optional notes
 
 ## Notes & Writing
 - `/note` - Create a quick inline note (no LLM response)

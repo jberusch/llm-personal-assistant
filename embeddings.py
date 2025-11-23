@@ -69,6 +69,11 @@ class EmbeddingsManager:
             description="Project embeddings"
         )
         
+        self.list_items_collection = self._get_cosine_collection(
+            name="list_items",
+            description="List item embeddings"
+        )
+        
         if self._needs_reindex_notice:
             console.print(
                 "[yellow]Search index upgraded to a better cosine distance metric. "
@@ -168,6 +173,26 @@ class EmbeddingsManager:
                 "project_id": project.id,
                 "name": project.name,
                 "created_at": project.created_at.isoformat(),
+                "indexed_at": datetime.now().isoformat()
+            }]
+        )
+    
+    def embed_list_item(self, item_id: str, text: str, category: str = "list_item"):
+        """Embed a list item with its content and metadata."""
+        if not text or not text.strip():
+            return
+        
+        # Generate embedding
+        embedding = self.generate_embedding(text)
+        
+        # Store in ChromaDB
+        self.list_items_collection.upsert(
+            ids=[item_id],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[{
+                "item_id": item_id,
+                "category": category,
                 "indexed_at": datetime.now().isoformat()
             }]
         )
@@ -314,6 +339,33 @@ class EmbeddingsManager:
                         ))
         except Exception as e:
             # Silently skip projects if there's an error
+            pass
+        
+        # Search list items
+        try:
+            list_items_count = self.list_items_collection.count()
+            if list_items_count > 0:
+                list_results = self.list_items_collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=min(top_k, list_items_count),
+                    include=["documents", "metadatas", "distances"]
+                )
+                
+                documents = list_results.get('documents', [[]])[0]
+                metadatas = list_results.get('metadatas', [[]])[0]
+                distances = list_results.get('distances', [[]])[0]
+                update_stats(distances, "list_item")
+                
+                if documents:
+                    for i, doc in enumerate(documents):
+                        results.append(SearchResult(
+                            content=doc,
+                            metadata=metadatas[i],
+                            distance=distances[i] if distances else 0.0,
+                            result_type='list_item'
+                        ))
+        except Exception as e:
+            # Silently skip list items if there's an error
             pass
         
         # Sort by distance (lower is better)
