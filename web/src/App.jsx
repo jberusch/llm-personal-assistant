@@ -5,6 +5,8 @@ import ProjectDetail from './pages/ProjectDetail'
 import WriteNote from './pages/WriteNote'
 import DailyPages from './pages/DailyPages'
 import DailyLog from './pages/DailyLog'
+import Lists from './pages/Lists'
+import ListDetail from './pages/ListDetail'
 import './App.css'
 
 function App() {
@@ -15,6 +17,8 @@ function App() {
         <Route path="/tasks" element={<Tasks />} />
         <Route path="/projects" element={<Projects />} />
         <Route path="/projects/:projectId" element={<ProjectDetail />} />
+        <Route path="/lists" element={<Lists />} />
+        <Route path="/lists/:listId" element={<ListDetail />} />
         <Route path="/write" element={<WriteNote />} />
         <Route path="/daily-pages" element={<DailyPages />} />
         <Route path="/log" element={<DailyLog />} />

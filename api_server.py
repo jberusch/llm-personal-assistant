@@ -248,6 +248,201 @@ def create_app():
             'notes': project_notes
         })
     
+    # Lists endpoints
+    
+    @app.route('/api/lists')
+    def get_lists():
+        """Get all lists."""
+        from lists import list_manager
+        
+        lists = list_manager.get_all_lists()
+        lists_data = []
+        
+        for lst in lists:
+            items = list_manager.get_list_items(lst.name)
+            lists_data.append({
+                'id': lst.id,
+                'name': lst.name,
+                'description': lst.description,
+                'category': lst.category,
+                'created_at': lst.created_at.isoformat(),
+                'updated_at': lst.updated_at.isoformat(),
+                'item_count': len(items)
+            })
+        
+        return jsonify({'lists': lists_data})
+    
+    @app.route('/api/lists/<list_id>')
+    def get_list(list_id):
+        """Get a specific list with its items."""
+        from lists import list_manager
+        
+        lst = list_manager.get_list_by_id(list_id)
+        if not lst:
+            return jsonify({'error': 'List not found'}), 404
+        
+        items = list_manager.get_list_items(lst.name)
+        items_data = []
+        
+        for item in items:
+            items_data.append({
+                'id': item.id,
+                'title': item.title,
+                'description': item.description,
+                'metadata': item.metadata,
+                'created_at': item.created_at.isoformat(),
+                'updated_at': item.updated_at.isoformat()
+            })
+        
+        return jsonify({
+            'list': {
+                'id': lst.id,
+                'name': lst.name,
+                'description': lst.description,
+                'category': lst.category,
+                'created_at': lst.created_at.isoformat(),
+                'updated_at': lst.updated_at.isoformat()
+            },
+            'items': items_data
+        })
+    
+    @app.route('/api/lists', methods=['POST', 'OPTIONS'])
+    def create_list():
+        """Create a new list."""
+        if request.method == 'OPTIONS':
+            return '', 204
+        
+        from lists import list_manager
+        
+        try:
+            data = request.get_json()
+            name = data.get('name', '').strip()
+            description = data.get('description', '').strip()
+            category = data.get('category', 'general').strip()
+            
+            if not name:
+                return jsonify({'error': 'List name is required'}), 400
+            
+            lst = list_manager.create_list(name, description, category)
+            
+            return jsonify({
+                'list': {
+                    'id': lst.id,
+                    'name': lst.name,
+                    'description': lst.description,
+                    'category': lst.category,
+                    'created_at': lst.created_at.isoformat(),
+                    'updated_at': lst.updated_at.isoformat()
+                }
+            })
+        
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/api/lists/<list_id>/items', methods=['POST', 'OPTIONS'])
+    def add_list_item(list_id):
+        """Add an item to a list."""
+        if request.method == 'OPTIONS':
+            return '', 204
+        
+        from lists import list_manager
+        
+        try:
+            lst = list_manager.get_list_by_id(list_id)
+            if not lst:
+                return jsonify({'error': 'List not found'}), 404
+            
+            data = request.get_json()
+            title = data.get('title', '').strip()
+            description = data.get('description', '').strip()
+            metadata = data.get('metadata', {})
+            
+            if not title:
+                return jsonify({'error': 'Item title is required'}), 400
+            
+            item = list_manager.add_item(
+                list_name=lst.name,
+                title=title,
+                description=description,
+                metadata=metadata,
+                auto_create_list=False
+            )
+            
+            return jsonify({
+                'item': {
+                    'id': item.id,
+                    'title': item.title,
+                    'description': item.description,
+                    'metadata': item.metadata,
+                    'created_at': item.created_at.isoformat(),
+                    'updated_at': item.updated_at.isoformat()
+                }
+            })
+        
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/api/lists/items/<item_id>', methods=['PUT', 'OPTIONS'])
+    def update_list_item(item_id):
+        """Update a list item."""
+        if request.method == 'OPTIONS':
+            return '', 204
+        
+        from lists import list_manager
+        
+        try:
+            data = request.get_json()
+            
+            # Build update dict from provided fields
+            updates = {}
+            if 'title' in data:
+                updates['title'] = data['title'].strip()
+            if 'description' in data:
+                updates['description'] = data['description'].strip()
+            if 'metadata' in data:
+                updates['metadata'] = data['metadata']
+            
+            if not updates:
+                return jsonify({'error': 'No fields to update'}), 400
+            
+            item = list_manager.update_item(item_id, **updates)
+            
+            if not item:
+                return jsonify({'error': 'Item not found'}), 404
+            
+            return jsonify({
+                'item': {
+                    'id': item.id,
+                    'title': item.title,
+                    'description': item.description,
+                    'metadata': item.metadata,
+                    'created_at': item.created_at.isoformat(),
+                    'updated_at': item.updated_at.isoformat()
+                }
+            })
+        
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    @app.route('/api/lists/items/<item_id>', methods=['DELETE', 'OPTIONS'])
+    def delete_list_item(item_id):
+        """Delete a list item."""
+        if request.method == 'OPTIONS':
+            return '', 204
+        
+        from lists import list_manager
+        
+        try:
+            success = list_manager.delete_item(item_id)
+            
+            if not success:
+                return jsonify({'error': 'Item not found'}), 404
+            
+            return jsonify({'success': True})
+        
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
     return app
 
 

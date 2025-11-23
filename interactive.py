@@ -2169,11 +2169,18 @@ Request: "{request}"
         console.print(f"[green]✓ Opened {project.name}[/green]\n")
     
     def cmd_lists(self, args: str):
-        """Display all persistent lists."""
+        """Display all persistent lists with interactive selection."""
         from lists import list_manager
         from rich.table import Table
+        from rich.prompt import Prompt
+        import webbrowser
         
         console.print()
+        
+        # If args provided, try to interpret as list number or open GUI
+        if args.strip().lower() == 'gui':
+            self._open_lists_gui()
+            return
         
         lists = list_manager.get_all_lists()
         
@@ -2182,15 +2189,20 @@ Request: "{request}"
             console.print("[dim]Create one with: /list add \"<list name>\" \"<item>\"[/dim]\n")
             return
         
+        # Sort by most recent activity (updated_at)
+        lists.sort(key=lambda x: x.updated_at, reverse=True)
+        
         table = Table(title="[bold]📋 Your Lists[/bold]")
+        table.add_column("ID", style="dim", width=4)
         table.add_column("List Name", style="cyan")
         table.add_column("Category", style="yellow")
-        table.add_column("Items", style="green")
+        table.add_column("Items", style="green", justify="right")
         table.add_column("Description", style="dim")
         
-        for lst in lists:
+        for idx, lst in enumerate(lists, 1):
             items = list_manager.get_list_items(lst.name)
             table.add_row(
+                str(idx),
                 lst.name,
                 lst.category,
                 str(len(items)),
@@ -2198,7 +2210,54 @@ Request: "{request}"
             )
         
         console.print(table)
-        console.print("\n[dim]Use /list \"<name>\" to view items[/dim]\n")
+        console.print()
+        
+        # Prompt for selection
+        choice = Prompt.ask(
+            "[cyan]Enter list number to open in browser, 'gui' for web UI, or press Enter to cancel[/cyan]",
+            default=""
+        )
+        
+        if not choice.strip():
+            console.print()
+            return
+        
+        if choice.strip().lower() == 'gui':
+            self._open_lists_gui()
+            return
+        
+        # Try to parse as number
+        try:
+            list_num = int(choice.strip())
+            if 1 <= list_num <= len(lists):
+                selected_list = lists[list_num - 1]
+                self._open_list_view(selected_list)
+            else:
+                console.print(f"[red]Invalid list number. Please choose between 1 and {len(lists)}.[/red]\n")
+        except ValueError:
+            console.print("[red]Invalid input. Please enter a number or 'gui'.[/red]\n")
+    
+    def _open_lists_gui(self):
+        """Open the lists GUI in browser."""
+        import webbrowser
+        
+        console.print()
+        console.print("[cyan]Opening lists...[/cyan]")
+        console.print("[dim]Make sure the web app is running: cd web && npm run dev[/dim]\n")
+        
+        webbrowser.open('http://localhost:5173/lists')
+        console.print("[green]✓ Opened lists GUI[/green]\n")
+    
+    def _open_list_view(self, lst):
+        """Open a specific list view in browser."""
+        import webbrowser
+        
+        console.print()
+        console.print(f"[cyan]Opening list: {lst.name}...[/cyan]")
+        console.print("[dim]Make sure the web app is running: cd web && npm run dev[/dim]\n")
+        
+        webbrowser.open(f'http://localhost:5173/lists/{lst.id}')
+        console.print(f"[green]✓ Opened {lst.name}[/green]\n")
     
     def cmd_list(self, args: str):
         """View or add items to a list."""
