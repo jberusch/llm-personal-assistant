@@ -64,6 +64,7 @@ class InteractiveSession:
             '/search': self.cmd_search_router,
             '/places': self.cmd_places,
             '/projects': self.cmd_projects,
+            '/open': self.cmd_open_web,
             '/tracker': self.cmd_tracker,
             '/stats': self.cmd_stats,
             '/config': self.cmd_config,
@@ -95,6 +96,7 @@ class InteractiveSession:
             '/search': 'Search the web or your history (/search web <query> or /search history <query>)',
             '/places': 'Find nearby places (cafes, restaurants, etc.)',
             '/projects': 'View all your projects',
+            '/open': 'Open a URL in your browser (/open web <url>)',
             '/tracker': 'View tracker history (e.g., /tracker sleep)',
             '/stats': 'Show productivity statistics',
             '/config': 'Configure API key and settings',
@@ -1757,6 +1759,30 @@ Request: "{request}"
             else:
                 console.print(f"[red]Google Search error: {e}[/red]\n")
     
+    def cmd_open_web(self, args: str):
+        """Open a URL in the default browser."""
+        if not args.strip():
+            console.print("[yellow]Usage: /open web <url>[/yellow]")
+            console.print("[dim]Examples:[/dim]")
+            console.print("[dim]  /open web https://docs.python.org[/dim]")
+            console.print("[dim]  /open web github.com/username/repo[/dim]")
+            console.print("[dim]  /open web example.com[/dim]\n")
+            return
+        
+        url = args.strip()
+        
+        # Add https:// if no protocol specified
+        if not url.startswith(('http://', 'https://', 'file://')):
+            url = 'https://' + url
+        
+        try:
+            import webbrowser
+            console.print()
+            console.print(f"[cyan]Opening:[/cyan] {url}\n")
+            webbrowser.open(url)
+        except Exception as e:
+            console.print(f"[red]Error opening URL: {e}[/red]\n")
+    
     def cmd_places(self, args: str):
         """Find nearby places using Google Places API."""
         if not args.strip():
@@ -2247,6 +2273,7 @@ Request: "{request}"
 ## Search & Projects
 - `/search web <query> [results:N]` - Search DuckDuckGo (default 10 results, max 25)
 - `/search history <query>` - Search your notes, tasks, and projects semantically
+- `/open web <url>` - Open a URL in your browser
 - `/places <query>` - Find nearby places (cafes, restaurants, bars, etc.)
 - `/projects` - View all your projects (use arrows to navigate)
 
@@ -2268,6 +2295,7 @@ Just type naturally without a slash command to chat with the assistant!
 - "I'm feeling overwhelmed" → get support
 - "/search web python tutorials results:5" → search the web
 - "/search history things to read" → find all reading-related notes
+- "/open web github.com/username/repo" → open a URL
 - "/places cafe nearby" → find nearby cafes with ratings and hours
 """
         console.print(Panel(Markdown(help_text), title="Help", border_style="cyan"))
