@@ -10,6 +10,7 @@ from rich.text import Text
 from assistant import Assistant
 from tasks import task_manager
 from storage import storage
+from profile import profile_manager
 
 console = Console()
 
@@ -24,7 +25,7 @@ class ChatInterface:
     def start(self):
         """Start an interactive chat session."""
         console.print("\n[bold cyan]💬 Chat Session Started[/bold cyan]")
-        console.print("[dim]Type '/search [query]' for semantic search, 'tasks' to view your task board, 'quit' or 'exit' to end.[/dim]\n")
+        console.print("[dim]Type '/search [query]' for semantic search, '/profile' to view your profile, 'tasks' to view your task board, 'quit' or 'exit' to end.[/dim]\n")
         
         # Initialize assistant
         try:
@@ -76,6 +77,17 @@ class ChatInterface:
                 # Check for projects command
                 if user_input.lower() in ['/projects']:
                     self._show_projects()
+                    continue
+                
+                # Check for profile command
+                if user_input.lower() in ['/profile', 'profile']:
+                    self._show_profile()
+                    continue
+                
+                # Check for profile update intent
+                profile_intent = profile_manager.detect_profile_intent(user_input)
+                if profile_intent:
+                    self._handle_profile_update(user_input)
                     continue
                 
                 # Check for task creation intent
@@ -248,6 +260,7 @@ class ChatInterface:
         help_text = """
 **Chat Commands:**
 - `/search [query]` - Search your notes and tasks semantically
+- `/profile` - View your personal profile
 - `/projects` - View all your projects
 - `tasks` - View your task board
 - `quit` or `exit` - End the chat session
@@ -256,6 +269,7 @@ class ChatInterface:
 **Tips:**
 - Just chat naturally - I'll help you think through priorities
 - Say things like "remind me tomorrow to..." to create tasks
+- Say "remember that I..." to update your profile with personal context
 - Use `/search` to find everything you've written about a topic
 - Ask "what should I focus on?" for suggestions based on your morning goals
 - I remember your morning reflection and current context
@@ -386,6 +400,81 @@ class ChatInterface:
                 console.print(f"[yellow]{len(project_tasks)} active task(s)[/yellow]")
             
             console.print()
+        
+        console.print()
+    
+    def _show_profile(self):
+        """Display the user's profile."""
+        console.print()
+        
+        profile_content = profile_manager.format_for_display()
+        console.print(Panel(Markdown(profile_content), title="📋 Your Profile", border_style="cyan"))
+        
+        console.print()
+    
+    def _handle_profile_update(self, user_input: str):
+        """Handle automatic profile update from conversation."""
+        console.print()
+        console.print(f"[yellow]📝 I detected you want to update your profile.[/yellow]")
+        
+        # Ask Claude to parse the update and suggest how to categorize it
+        console.print()
+        with console.status("[cyan]Analyzing...[/cyan]"):
+            prompt = f"""
+The user said: "{user_input}"
+
+This appears to be information they want remembered in their personal profile. 
+Please extract the key information and suggest how to organize it.
+
+Respond in JSON format:
+{{
+    "section": "suggested section name (e.g., Location & Context, Preferences, Work & Projects, Personal, Goals, Communication Style)",
+    "content": "the information to add, formatted as a bullet point or short paragraph",
+    "summary": "a one-line summary of what you're adding"
+}}
+
+Only extract factual information the user stated. Don't add assumptions.
+"""
+            
+            response = self.assistant.ask_question(prompt)
+        
+        # Try to parse JSON from response
+        import json
+        try:
+            # Find JSON in the response
+            start = response.find('{')
+            end = response.rfind('}') + 1
+            if start >= 0 and end > start:
+                result = json.loads(response[start:end])
+                
+                section = result.get("section", "Personal")
+                content = result.get("content", "")
+                summary = result.get("summary", "")
+                
+                if content:
+                    console.print(f"[cyan]Section:[/cyan] {section}")
+                    console.print(f"[cyan]Adding:[/cyan] {summary}")
+                    console.print()
+                    console.print(f"[dim]{content}[/dim]")
+                    console.print()
+                    
+                    # Ask for confirmation
+                    confirm = Prompt.ask("Update your profile?", choices=["y", "n"], default="y")
+                    
+                    if confirm == "y":
+                        # Update the profile
+                        profile_manager.append_to_section(section, content)
+                        console.print(f"[green]✓ Profile updated[/green]")
+                        
+                        # Refresh assistant context with new profile
+                        self.assistant.refresh_context()
+                    else:
+                        console.print("[dim]Profile not updated.[/dim]")
+                else:
+                    console.print("[yellow]Couldn't extract clear information to add. Try being more specific.[/yellow]")
+        except (json.JSONDecodeError, ValueError) as e:
+            console.print(f"[yellow]Couldn't parse the update. Try saying it differently.[/yellow]")
+            console.print(f"[dim]Error: {e}[/dim]")
         
         console.print()
     

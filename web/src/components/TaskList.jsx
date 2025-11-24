@@ -48,10 +48,17 @@ export default function TaskList({ title, tasks, onComplete, showDueDate = false
               onChange={() => handleCheckbox(task.id)}
               disabled={completingIds.has(task.id)}
             />
-            <span className="task-text">{task.text}</span>
-            {showDueDate && task.due_date && (
-              <span className="task-due">{task.due_date}</span>
-            )}
+            <div className="task-content">
+              <span className="task-text">{task.text}</span>
+              <div className="task-meta">
+                {task.project_name && (
+                  <span className="task-project-tag">#{task.project_name}</span>
+                )}
+                {showDueDate && task.due_date && (
+                  <span className="task-due">{task.due_date}</span>
+                )}
+              </div>
+            </div>
           </div>
         ))}
       </div>

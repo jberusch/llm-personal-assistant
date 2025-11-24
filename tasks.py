@@ -126,7 +126,7 @@ class TaskManager:
         
         return base_date + timedelta(days=days_ahead)
     
-    def add_task(self, text: str, due_date: Optional[datetime] = None, status: str = "inbox") -> Task:
+    def add_task(self, text: str, due_date: Optional[datetime] = None, status: str = "inbox", project_id: Optional[str] = None) -> Task:
         """Add a new task."""
         # Parse natural language if no explicit due date provided
         if due_date is None:
@@ -145,7 +145,8 @@ class TaskManager:
         task = Task(
             text=text,
             due_date=due_date,
-            status=status
+            status=status,
+            project_id=project_id
         )
         
         return self.storage.add_task(task)

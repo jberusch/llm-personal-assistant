@@ -22,6 +22,7 @@ from tasks import task_manager
 from routines import morning_routine, evening_routine
 from storage import storage
 from config import config
+from profile import profile_manager
 
 console = Console()
 AI_TRIAGE_MODEL = "claude-3-5-haiku-latest"
@@ -66,6 +67,7 @@ class InteractiveSession:
             '/projects': self.cmd_projects,
             '/lists': self.cmd_lists,
             '/list': self.cmd_list,
+            '/profile': self.cmd_profile,
             '/open': self.cmd_open_web,
             '/tracker': self.cmd_tracker,
             '/stats': self.cmd_stats,
@@ -98,6 +100,7 @@ class InteractiveSession:
             '/search': 'Search the web or your history (/search web <query> or /search history <query>)',
             '/places': 'Find nearby places (cafes, restaurants, etc.)',
             '/projects': 'View all your projects',
+            '/profile': 'View or update your personal profile',
             '/lists': 'View all your persistent lists',
             '/list': 'View or add items to a specific list',
             '/open': 'Open a URL in your browser (/open web <url>)',
@@ -253,6 +256,12 @@ class InteractiveSession:
     
     def _handle_chat(self, user_input: str):
         """Handle natural language chat."""
+        # Check for profile update intent
+        profile_intent = profile_manager.detect_profile_intent(user_input)
+        if profile_intent:
+            self._handle_profile_update(user_input)
+            return
+        
         # Check for task creation intent
         task_intent = self.assistant.parse_task_intent(user_input)
         if task_intent:
@@ -291,6 +300,71 @@ class InteractiveSession:
             self.assistant.refresh_context()
         else:
             console.print("[dim]Task not added.[/dim]")
+        
+        console.print()
+    
+    def _handle_profile_update(self, user_input: str):
+        """Handle automatic profile update from conversation."""
+        console.print()
+        console.print(f"[yellow]📝 I detected you want to update your profile.[/yellow]")
+        
+        # Ask Claude to parse the update and suggest how to categorize it
+        console.print()
+        with console.status("[cyan]Analyzing...[/cyan]"):
+            prompt = f"""
+The user said: "{user_input}"
+
+This appears to be information they want remembered in their personal profile. 
+Please extract the key information and suggest how to organize it.
+
+Respond in JSON format:
+{{
+    "section": "suggested section name (e.g., Location & Context, Preferences, Work & Projects, Personal, Goals, Communication Style)",
+    "content": "the information to add, formatted as a bullet point or short paragraph",
+    "summary": "a one-line summary of what you're adding"
+}}
+
+Only extract factual information the user stated. Don't add assumptions.
+"""
+            
+            response = self.assistant.ask_question(prompt)
+        
+        # Try to parse JSON from response
+        try:
+            # Find JSON in the response
+            start = response.find('{')
+            end = response.rfind('}') + 1
+            if start >= 0 and end > start:
+                result = json.loads(response[start:end])
+                
+                section = result.get("section", "Personal")
+                content = result.get("content", "")
+                summary = result.get("summary", "")
+                
+                if content:
+                    console.print(f"[cyan]Section:[/cyan] {section}")
+                    console.print(f"[cyan]Adding:[/cyan] {summary}")
+                    console.print()
+                    console.print(f"[dim]{content}[/dim]")
+                    console.print()
+                    
+                    # Ask for confirmation
+                    confirm = Prompt.ask("Update your profile?", choices=["y", "n"], default="y")
+                    
+                    if confirm == "y":
+                        # Update the profile
+                        profile_manager.append_to_section(section, content)
+                        console.print(f"[green]✓ Profile updated[/green]")
+                        
+                        # Refresh assistant context with new profile
+                        self.assistant.refresh_context()
+                    else:
+                        console.print("[dim]Profile not updated.[/dim]")
+                else:
+                    console.print("[yellow]Couldn't extract clear information to add. Try being more specific.[/yellow]")
+        except (json.JSONDecodeError, ValueError) as e:
+            console.print(f"[yellow]Couldn't parse the update. Try saying it differently.[/yellow]")
+            console.print(f"[dim]Error: {e}[/dim]")
         
         console.print()
     
@@ -1362,10 +1436,10 @@ Request: "{request}"
         args = args.strip()
         if not args:
             console.print("[yellow]Usage:[/yellow]")
-            console.print("  /search web <query> [results:N] - Search DuckDuckGo (default 10 results)")
+            console.print("  /search web <query> - Search the web with Gemini AI (with grounding)")
             console.print("  /search history <query> - Search your notes, tasks, and projects")
             console.print("\n[dim]Examples:[/dim]")
-            console.print("  /search web python tutorials results:5")
+            console.print("  /search web python async programming best practices")
             console.print("  /search history things to read\n")
             return
         
@@ -1506,23 +1580,13 @@ Request: "{request}"
             console.print(f"[dim]Make sure you've run: ./focus index[/dim]\n")
     
     def cmd_search_web(self, args: str):
-        """Search the web and get AI-synthesized results with citations."""
+        """Search the web using Gemini with grounding."""
         if not args.strip():
-            console.print("[yellow]Usage: /search web <query> [results:N][/yellow]")
-            console.print("[dim]Example: /search web python tutorials results:5[/dim]\n")
+            console.print("[yellow]Usage: /search web <query>[/yellow]")
+            console.print("[dim]Example: /search web python async programming best practices[/dim]\n")
             return
         
-        # Parse arguments - look for results:N parameter
-        max_results = 10  # default
         query = args.strip()
-        
-        # Check if results parameter is present
-        import re
-        results_match = re.search(r'\bresults:(\d+)\b', query, re.IGNORECASE)
-        if results_match:
-            max_results = min(int(results_match.group(1)), 25)  # cap at 25
-            # Remove the results parameter from query
-            query = re.sub(r'\s*\bresults:\d+\b\s*', ' ', query, flags=re.IGNORECASE).strip()
         
         if not query:
             console.print("[red]Please provide a search query.[/red]\n")
@@ -1530,175 +1594,89 @@ Request: "{request}"
         
         console.print()
         
-        # Check if Google Search is configured (preferred)
-        google_search_key = config.get_google_search_key()
-        google_search_cx = config.get_google_search_cx()
+        # Check if Google API key is configured
+        google_api_key = config.get_google_search_key()
         
-        if google_search_key and google_search_cx:
-            # Use Google Custom Search API (more reliable)
-            self._search_with_google_ai(query, max_results)
+        if not google_api_key:
+            console.print("[yellow]⚠️  Web search requires a Google API key[/yellow]")
+            console.print("[dim]This uses Gemini with web grounding for real-time search.[/dim]")
+            console.print("[dim]Run /config to set up your Google API key.[/dim]\n")
+            console.print("[dim]Get a free API key at: https://makersuite.google.com/app/apikey[/dim]\n")
             return
-        
-        # Fall back to DuckDuckGo
-        console.print("[dim]Tip: Configure Google Search for better results: /config[/dim]\n")
         
         try:
-            from duckduckgo_search import DDGS
-        except ImportError:
-            console.print("[red]duckduckgo_search library not installed.[/red]")
-            console.print("[dim]Install it with: pip install duckduckgo_search[/dim]\n")
-            return
-        
-        # Try search with automatic retry on rate limit
-        results = []
-        max_retries = 3
-        retry_delay = 2  # seconds
-        
-        for attempt in range(max_retries):
-            try:
-                if attempt > 0:
-                    with console.status(f"[cyan]Retrying search (attempt {attempt + 1}/{max_retries})...[/cyan]"):
-                        import time
-                        time.sleep(retry_delay * attempt)  # Exponential backoff
-                        ddgs = DDGS()
-                        results = list(ddgs.text(query, max_results=max_results))
-                else:
-                    with console.status(f"[cyan]Searching DuckDuckGo for: {query}...[/cyan]"):
-                        ddgs = DDGS()
-                        results = list(ddgs.text(query, max_results=max_results))
-                
-                # If we got here, search succeeded
-                break
-                
-            except Exception as e:
-                error_msg = str(e).lower()
-                
-                if "ratelimit" in error_msg or "rate limit" in error_msg:
-                    if attempt < max_retries - 1:
-                        # Try again after delay
-                        continue
-                    else:
-                        # Final attempt failed
-                        console.print(f"[yellow]⚠️  DuckDuckGo rate limit reached[/yellow]")
-                        console.print(f"[dim]DuckDuckGo limits automated searches. Try again in 1-2 minutes.[/dim]")
-                        console.print(f"[dim]Tip: Use /search history to search your local notes instead.[/dim]\n")
-                        return
-                elif "timeout" in error_msg:
-                    console.print(f"[yellow]Search timed out.[/yellow]")
-                    console.print(f"[dim]Please check your internet connection and try again.[/dim]\n")
-                    return
-                else:
-                    console.print(f"[red]Error during web search: {e}[/red]\n")
-                    return
-        
-        if not results:
-            console.print(f"[yellow]No results found for '{query}'[/yellow]\n")
-            return
-        
-        # Use AI to synthesize the results
-        self._synthesize_search_results(query, results)
-    
-    def _synthesize_search_results(self, query: str, results: list):
-        """Use AI to synthesize search results into a natural language response."""
-        from rich.markdown import Markdown
-        
-        # Format search results for the AI
-        search_context = f"Search query: {query}\n\nSearch results:\n\n"
-        
-        for i, result in enumerate(results[:10], 1):  # Limit to top 10 for AI context
-            title = result.get('title', 'No title')
-            url = result.get('href', result.get('link', ''))
-            snippet = result.get('body', result.get('snippet', ''))
+            from gemini_search import get_gemini_client
+            from rich.markdown import Markdown
             
-            search_context += f"[{i}] {title}\n"
-            search_context += f"URL: {url}\n"
-            if snippet:
-                search_context += f"Snippet: {snippet}\n"
-            search_context += "\n"
-        
-        # Prompt for the AI
-        prompt = f"""{search_context}
-
-Based on the search results above, provide a comprehensive answer to the query "{query}".
-
-Requirements:
-1. Synthesize information from multiple sources
-2. Cite sources using [1], [2], etc. inline in your response
-3. At the end, list all citations with full titles and URLs in this format:
-
-**Sources:**
-[1] Title - URL
-[2] Title - URL
-
-4. Be conversational and informative
-5. If the results don't fully answer the query, acknowledge what's missing
-
-Answer:"""
-        
-        try:
-            with console.status("[cyan]AI is analyzing the results...[/cyan]"):
-                ai_response = self.assistant.ask_question(prompt)
+            # Get Gemini client
+            gemini_client = get_gemini_client(google_api_key)
             
-            console.print()
+            if not gemini_client:
+                console.print("[red]Failed to initialize Gemini client.[/red]\n")
+                return
+            
+            # Search with Gemini
+            with console.status(f"[cyan]Searching the web with Gemini: {query}...[/cyan]"):
+                result = gemini_client.search(query)
+            
+            # Display the answer
             console.print(f"[bold cyan]🌐 Web Search: {query}[/bold cyan]\n")
-            console.print(Markdown(ai_response))
+            
+            if result.get('answer'):
+                console.print(Markdown(result['answer']))
+            else:
+                console.print("[yellow]No results found.[/yellow]")
+            
+            # Display sources if available
+            sources = result.get('sources') or []
+            if sources:
+                console.print("\n[bold cyan]Sources:[/bold cyan]")
+                for i, source in enumerate(sources, 1):
+                    title = source.get('title', 'Untitled')
+                    url = source.get('url', '')
+                    console.print(f"[{i}] [link={url}]{title}[/link]")
+                    console.print(f"    [dim]{url}[/dim]")
+
+                # Allow user to open a source by number
+                console.print()
+                choice = Prompt.ask(
+                    "[cyan]Enter result number to open in browser (or press Enter to skip)[/cyan]",
+                    default=""
+                )
+                if choice.strip():
+                    try:
+                        idx = int(choice.strip()) - 1
+                        if 0 <= idx < len(sources):
+                            url = sources[idx].get('url', '')
+                            if url:
+                                import webbrowser
+                                console.print()
+                                console.print(f"[cyan]Opening:[/cyan] {url}\n")
+                                webbrowser.open(url)
+                            else:
+                                console.print("[red]No URL found for this source.[/red]\n")
+                        else:
+                            console.print("[red]Invalid selection.[/red]\n")
+                    except ValueError:
+                        console.print("[red]Invalid selection.[/red]\n")
             console.print()
             
-        except Exception as e:
-            console.print(f"[red]Error generating AI response: {e}[/red]")
-            console.print("[yellow]Falling back to raw results...[/yellow]\n")
-            
-            # Fallback: show raw results
-            for i, result in enumerate(results, 1):
-                title = result.get('title', 'No title')
-                url = result.get('href', result.get('link', ''))
-                snippet = result.get('body', result.get('snippet', ''))
-                
-                console.print(f"[bold cyan]{i}. {title}[/bold cyan]")
-                console.print(f"[dim]{url}[/dim]")
-                if snippet:
-                    if len(snippet) > 200:
-                        snippet = snippet[:197] + "..."
-                    console.print(f"{snippet}")
-                console.print()
-    
-    def _search_with_google_ai(self, query: str, max_results: int):
-        """Search using Google Custom Search API and synthesize with AI."""
-        try:
-            from google_search import get_google_search_client
-            
-            # Get configured client
-            google_client = get_google_search_client(
-                config.get_google_search_key(),
-                config.get_google_search_cx()
-            )
-            
-            if not google_client:
-                console.print("[red]Google Search not properly configured.[/red]\n")
-                return
-            
-            with console.status(f"[cyan]Searching Google for: {query}...[/cyan]"):
-                # Google CSE API limits to 10 results per request
-                results = google_client.search(query, min(max_results, 10))
-            
-            if not results:
-                console.print(f"[yellow]No results found for '{query}'[/yellow]\n")
-                return
-            
-            # Use AI to synthesize the results
-            self._synthesize_search_results(query, results)
-        
+        except ImportError:
+            console.print("[red]Gemini library not installed.[/red]")
+            console.print("[dim]Install it with: pip install google-generativeai[/dim]\n")
+            return
         except Exception as e:
             error_msg = str(e).lower()
-            if "quota" in error_msg or "limit" in error_msg:
-                console.print(f"[yellow]Google Search API quota exceeded.[/yellow]")
-                console.print(f"[dim]You've used your 100 free searches today. Try again tomorrow.[/dim]")
-                console.print(f"[dim]Or use DuckDuckGo: remove Google keys with /config[/dim]\n")
-            elif "authentication" in error_msg or "403" in error_msg:
-                console.print(f"[red]Google Search authentication failed.[/red]")
-                console.print(f"[dim]Check your API key and CX ID with /config[/dim]\n")
+            if "api key" in error_msg or "authentication" in error_msg:
+                console.print(f"[red]Gemini API authentication failed.[/red]")
+                console.print(f"[dim]Check your Google API key with /config[/dim]")
+                console.print(f"[dim]Get a key at: https://makersuite.google.com/app/apikey[/dim]\n")
+            elif "quota" in error_msg or "limit" in error_msg:
+                console.print(f"[yellow]Gemini API quota exceeded.[/yellow]")
+                console.print(f"[dim]You may have reached your daily limit. Try again tomorrow.[/dim]\n")
             else:
-                console.print(f"[red]Google Search error: {e}[/red]\n")
+                console.print(f"[red]Error during web search: {e}[/red]\n")
+            return
     
     def cmd_open_web(self, args: str):
         """Open a URL in the default browser."""
@@ -2089,6 +2067,43 @@ Answer:"""
         webbrowser.open(f'http://localhost:5173/projects/{project.id}')
         console.print(f"[green]✓ Opened {project.name}[/green]\n")
     
+    def cmd_profile(self, args: str):
+        """View or update personal profile."""
+        console.print()
+        
+        # Check if user wants to edit
+        if args.strip().lower() in ['edit', 'open']:
+            import subprocess
+            import platform
+            
+            profile_path = profile_manager.get_profile_path()
+            console.print(f"[cyan]Opening {profile_path}...[/cyan]\n")
+            
+            # Determine the editor command based on platform
+            system = platform.system()
+            try:
+                if system == 'Darwin':  # macOS
+                    subprocess.run(['open', str(profile_path)])
+                elif system == 'Linux':
+                    subprocess.run(['xdg-open', str(profile_path)])
+                elif system == 'Windows':
+                    subprocess.run(['start', str(profile_path)], shell=True)
+                else:
+                    console.print(f"[yellow]Please open manually: {profile_path}[/yellow]")
+            except Exception as e:
+                console.print(f"[red]Error opening editor: {e}[/red]")
+                console.print(f"[dim]Open manually: {profile_path}[/dim]\n")
+            return
+        
+        # Display the profile
+        profile_content = profile_manager.format_for_display()
+        console.print(Panel(Markdown(profile_content), title="📋 Your Profile", border_style="cyan"))
+        
+        console.print()
+        console.print("[dim]Edit with:[/dim] [cyan]/profile edit[/cyan]")
+        console.print("[dim]Or say 'remember that I...' to add information[/dim]")
+        console.print()
+    
     def cmd_lists(self, args: str):
         """Display all persistent lists with interactive selection."""
         from lists import list_manager
@@ -2381,7 +2396,7 @@ Answer:"""
                     config.set_google_search_key(new_key)
                     config.set_google_search_cx(new_cx)
                     console.print("\n[green]✓ Google Search configured![/green]")
-                    console.print("[dim]Now /search web will use Google instead of DuckDuckGo[/dim]\n")
+                    console.print("[dim]Now /search web will use Gemini with web grounding[/dim]\n")
         
         else:
             console.print()
@@ -2422,7 +2437,7 @@ Answer:"""
 - `/email archive <index|id...>` - Archive specific emails (add --delete to trash)
 
 ## Search & Projects
-- `/search web <query> [results:N]` - Search DuckDuckGo (default 10 results, max 25)
+- `/search web <query>` - Search the web with Gemini AI (with real-time grounding)
 - `/search history <query>` - Search your notes, tasks, projects, and lists semantically
 - `/open web <url>` - Open a URL in your browser
 - `/places <query>` - Find nearby places (cafes, restaurants, bars, etc.)
@@ -2434,6 +2449,11 @@ Answer:"""
 ## Notes & Writing
 - `/note` - Create a quick inline note (no LLM response)
 - `/write` - Write a markdown note with live preview (opens in browser)
+
+## Personal Profile
+- `/profile` - View your personal profile (context available in every conversation)
+- `/profile edit` - Open profile in your default editor
+- Say "remember that I..." to add information to your profile via chat
 
 ## Settings
 - `/config` - Configure API key and settings
@@ -2447,7 +2467,7 @@ Just type naturally without a slash command to chat with the assistant!
 - "remind me tomorrow to call mom" → creates a task
 - "what should I focus on today?" → get advice
 - "I'm feeling overwhelmed" → get support
-- "/search web python tutorials results:5" → search the web
+- "/search web python async programming" → search the web with AI
 - "/search history things to read" → find all reading-related notes
 - "/open web github.com/username/repo" → open a URL
 - "/places cafe nearby" → find nearby cafes with ratings and hours

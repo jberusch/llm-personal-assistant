@@ -3,6 +3,58 @@ import { useParams } from 'react-router-dom'
 
 const API_URL = 'http://localhost:5555'
 
+function buildChatExchanges(chat_history) {
+  if (!chat_history || chat_history.length === 0) return []
+  
+  const exchanges = []
+  let current = null
+  
+  chat_history.forEach((entry = {}) => {
+    const role = (entry && entry.metadata && entry.metadata.role) || entry.role || 'user'
+    const message = entry.response || entry.message || ''
+    if (!message || !message.trim()) {
+      return
+    }
+    
+    let timestamp = entry && entry.metadata && entry.metadata.timestamp
+    if (!timestamp && entry.timestamp) {
+      try {
+        const d = new Date(entry.timestamp)
+        if (!isNaN(d.getTime())) {
+          timestamp = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      } catch {
+        timestamp = ''
+      }
+    }
+    
+    if (role === 'user') {
+      if (current && (current.user || current.assistant)) {
+        exchanges.push(current)
+      }
+      current = { timestamp, user: message, assistant: '' }
+    } else {
+      if (!current) {
+        current = { timestamp, user: '', assistant: message }
+      } else if (!current.assistant) {
+        current.assistant = message
+        if (!current.timestamp) current.timestamp = timestamp
+        exchanges.push(current)
+        current = null
+      } else {
+        exchanges.push(current)
+        current = { timestamp, user: '', assistant: message }
+      }
+    }
+  })
+  
+  if (current && (current.user || current.assistant)) {
+    exchanges.push(current)
+  }
+  
+  return exchanges
+}
+
 export default function DailyLog() {
   const { date } = useParams()
   const [logData, setLogData] = useState(null)
@@ -58,9 +110,10 @@ export default function DailyLog() {
     )
   }
 
-  const { intention, daily_pages, notes, tasks, morning } = logData
+  const { intention, daily_pages, notes, tasks, morning, chat_history } = logData
   const dateObj = new Date(logData.date)
   const formattedDate = dateObj.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  const chatExchanges = buildChatExchanges(chat_history || [])
 
   return (
     <div className="container">
@@ -178,8 +231,34 @@ export default function DailyLog() {
           </div>
         )}
 
+        {/* Chat History */}
+        {chatExchanges.length > 0 && (
+          <div className="log-section">
+            <h2 className="log-section-title">💬 Conversations</h2>
+            <div className="chat-history">
+              {chatExchanges.map((entry, idx) => (
+                <div key={idx} className="chat-entry">
+                  {entry.timestamp && (
+                    <div className="chat-timestamp">{entry.timestamp}</div>
+                  )}
+                  {entry.user && (
+                    <div className="chat-message user-message">
+                      <strong>You:</strong> {entry.user}
+                    </div>
+                  )}
+                  {entry.assistant && (
+                    <div className="chat-message assistant-message">
+                      <strong>Assistant:</strong> {entry.assistant}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Empty State */}
-        {!intention && !daily_pages && tasks.today.length === 0 && tasks.completed.length === 0 && (!notes || notes.length === 0) && !morning && (
+        {!intention && !daily_pages && tasks.today.length === 0 && tasks.completed.length === 0 && (!notes || notes.length === 0) && !morning && chatExchanges.length === 0 && (
           <div className="empty-state">
             <p>Nothing recorded for this day yet.</p>
             <p>Start your morning flow to begin!</p>

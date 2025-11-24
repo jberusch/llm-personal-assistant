@@ -28,6 +28,7 @@ from routines import morning_routine, evening_routine
 from chat import chat
 from storage import storage
 from interactive import interactive_session
+from profile import profile_manager
 
 console = Console()
 
@@ -578,6 +579,70 @@ def stats():
     
     console.print(table)
     console.print()
+
+
+@cli.command()
+@click.argument('action', type=click.Choice(['view', 'edit', 'reset']), required=False, default='view')
+def profile(action):
+    """Manage your personal profile.
+    
+    The profile stores personal context that Claude can reference in conversations.
+    
+    Examples:
+        focus profile         # View your profile
+        focus profile edit    # Edit profile in your default editor
+        focus profile reset   # Reset profile to default template
+    """
+    from rich.markdown import Markdown
+    import subprocess
+    import platform
+    
+    if action == 'view':
+        # Display the profile
+        console.print()
+        
+        profile_content = profile_manager.format_for_display()
+        console.print(Panel(Markdown(profile_content), title="📋 Your Profile", border_style="cyan"))
+        
+        console.print()
+        console.print("[dim]Edit with:[/dim] [cyan]./focus profile edit[/cyan]")
+        console.print()
+    
+    elif action == 'edit':
+        # Open profile in default editor
+        profile_path = profile_manager.get_profile_path()
+        
+        console.print(f"\n[cyan]Opening {profile_path}...[/cyan]\n")
+        
+        # Determine the editor command based on platform
+        system = platform.system()
+        try:
+            if system == 'Darwin':  # macOS
+                subprocess.run(['open', str(profile_path)])
+            elif system == 'Linux':
+                subprocess.run(['xdg-open', str(profile_path)])
+            elif system == 'Windows':
+                subprocess.run(['start', str(profile_path)], shell=True)
+            else:
+                console.print(f"[yellow]Please open manually: {profile_path}[/yellow]")
+        except Exception as e:
+            console.print(f"[red]Error opening editor: {e}[/red]")
+            console.print(f"[dim]Open manually: {profile_path}[/dim]\n")
+    
+    elif action == 'reset':
+        # Reset profile to default
+        confirm = Prompt.ask(
+            "\n[yellow]Are you sure you want to reset your profile? This will erase all current content.[/yellow]",
+            choices=["y", "n"],
+            default="n"
+        )
+        
+        if confirm == "y":
+            profile_manager.reset_profile()
+            console.print("[green]✓ Profile reset to default template[/green]")
+            console.print(f"[dim]Edit with: ./focus profile edit[/dim]\n")
+        else:
+            console.print("[dim]Profile not changed.[/dim]\n")
 
 
 @cli.command()

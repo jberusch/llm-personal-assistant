@@ -6,6 +6,7 @@ import anthropic
 
 from config import config
 from storage import storage, JournalEntry
+from profile import profile_manager
 
 # Try to import Google integrations (may not be configured)
 try:
@@ -34,6 +35,15 @@ class Assistant:
     def _build_system_prompt(self) -> str:
         """Build the system prompt with context from today's morning routine."""
         base_prompt = config.get_personality()
+        
+        # Add user profile context if available
+        profile_content = profile_manager.load_profile()
+        if profile_content:
+            profile_context = "\n\n--- User Profile ---"
+            profile_context += "\nThis is background context about the user. Only reference it when relevant to the conversation. Don't bring it up unprompted.\n\n"
+            profile_context += profile_content
+            profile_context += "\n--- End Profile ---"
+            base_prompt += profile_context
         
         # Add current date/time context
         now = datetime.now()

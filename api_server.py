@@ -448,6 +448,13 @@ def create_app():
 
 def task_to_dict(task):
     """Convert a Task object to a dictionary."""
+    # Get project name if task has a project
+    project_name = None
+    if task.project_id:
+        project = project_manager.get_project(task.project_id)
+        if project:
+            project_name = project.name
+    
     return {
         'id': task.id,
         'text': task.text,
@@ -455,7 +462,8 @@ def task_to_dict(task):
         'due_date': task.due_date.strftime('%Y-%m-%d') if task.due_date else None,
         'created_at': task.created_at.isoformat(),
         'completed_at': task.completed_at.isoformat() if task.completed_at else None,
-        'project_id': task.project_id
+        'project_id': task.project_id,
+        'project_name': project_name
     }
 
 
