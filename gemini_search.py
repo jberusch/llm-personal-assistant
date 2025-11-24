@@ -73,12 +73,13 @@ class GeminiSearch:
         sources = []
         
         # Pattern to match: [number] Title - URL
-        # Handles both formats:
+        # More permissive so it handles extra \" - Provider - URL\" patterns too.
+        # Examples it should match:
         # [1] Title - https://example.com
-        # [1] Title - https://example.com (with extra text)
-        pattern = r'\[(\d+)\]\s*([^-\n]+?)\s*-\s*(https?://[^\s\n)]+)'
+        # [1] Title - Provider - https://example.com
+        pattern = r'\[(\d+)\]\s*(.+?)\s*-\s*(https?://[^\s\n)]+)'
         
-        matches = re.findall(pattern, text, re.MULTILINE)
+        matches = re.findall(pattern, text, re.MULTILINE | re.DOTALL)
         
         for match in matches:
             number, title, url = match
