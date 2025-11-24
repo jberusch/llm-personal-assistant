@@ -1506,7 +1506,7 @@ Request: "{request}"
             console.print(f"[dim]Make sure you've run: ./focus index[/dim]\n")
     
     def cmd_search_web(self, args: str):
-        """Search DuckDuckGo and display results with arrow key navigation."""
+        """Search the web and get AI-synthesized results with citations."""
         if not args.strip():
             console.print("[yellow]Usage: /search web <query> [results:N][/yellow]")
             console.print("[dim]Example: /search web python tutorials results:5[/dim]\n")
@@ -1536,7 +1536,7 @@ Request: "{request}"
         
         if google_search_key and google_search_cx:
             # Use Google Custom Search API (more reliable)
-            self._search_with_google(query, max_results)
+            self._search_with_google_ai(query, max_results)
             return
         
         # Fall back to DuckDuckGo
@@ -1595,82 +1595,75 @@ Request: "{request}"
             console.print(f"[yellow]No results found for '{query}'[/yellow]\n")
             return
         
-        console.print(f"[bold cyan]🌐 Web Search Results for: {query}[/bold cyan]\n")
-
-        # Prepare options for pick library
-        options = []
-        for i, result in enumerate(results, 1):
+        # Use AI to synthesize the results
+        self._synthesize_search_results(query, results)
+    
+    def _synthesize_search_results(self, query: str, results: list):
+        """Use AI to synthesize search results into a natural language response."""
+        from rich.markdown import Markdown
+        
+        # Format search results for the AI
+        search_context = f"Search query: {query}\n\nSearch results:\n\n"
+        
+        for i, result in enumerate(results[:10], 1):  # Limit to top 10 for AI context
             title = result.get('title', 'No title')
-            # Truncate title if too long
-            if len(title) > 80:
-                title = title[:77] + "..."
-            options.append(f"{title}")
+            url = result.get('href', result.get('link', ''))
+            snippet = result.get('body', result.get('snippet', ''))
+            
+            search_context += f"[{i}] {title}\n"
+            search_context += f"URL: {url}\n"
+            if snippet:
+                search_context += f"Snippet: {snippet}\n"
+            search_context += "\n"
+        
+        # Prompt for the AI
+        prompt = f"""{search_context}
 
-        # Use pick library for arrow key navigation
+Based on the search results above, provide a comprehensive answer to the query "{query}".
+
+Requirements:
+1. Synthesize information from multiple sources
+2. Cite sources using [1], [2], etc. inline in your response
+3. At the end, list all citations with full titles and URLs in this format:
+
+**Sources:**
+[1] Title - URL
+[2] Title - URL
+
+4. Be conversational and informative
+5. If the results don't fully answer the query, acknowledge what's missing
+
+Answer:"""
+        
         try:
-            from pick import pick
-
-            title = "Use ↑/↓ arrows to navigate, Enter to open in browser, Esc to cancel"
-            try:
-                selected_option, selected_index = pick(options, title, indicator="→")
-                
-                if selected_index is not None:
-                    selected_result = results[selected_index]
-                    url = selected_result.get('href', selected_result.get('link', ''))
-
-                    if url:
-                        import webbrowser
-                        console.print()
-                        console.print(f"[cyan]Opening: {selected_result.get('title', 'result')}[/cyan]")
-                        console.print(f"[dim]{url}[/dim]\n")
-                        webbrowser.open(url)
-                    else:
-                        console.print("[red]No URL found for this result.[/red]\n")
-            except (KeyboardInterrupt, EOFError):
-                # User pressed Esc or Ctrl+C to cancel
-                console.print("\n[dim]Cancelled.[/dim]\n")
-                return
-
-        except ImportError:
-            # Fallback: numbered list
-            console.print("[yellow]Install 'pick' for arrow key navigation: pip install pick[/yellow]")
-            console.print("[dim]Using numbered selection instead...[/dim]\n")
-
+            with console.status("[cyan]AI is analyzing the results...[/cyan]"):
+                ai_response = self.assistant.ask_question(prompt)
+            
+            console.print()
+            console.print(f"[bold cyan]🌐 Web Search: {query}[/bold cyan]\n")
+            console.print(Markdown(ai_response))
+            console.print()
+            
+        except Exception as e:
+            console.print(f"[red]Error generating AI response: {e}[/red]")
+            console.print("[yellow]Falling back to raw results...[/yellow]\n")
+            
+            # Fallback: show raw results
             for i, result in enumerate(results, 1):
                 title = result.get('title', 'No title')
-                snippet = result.get('body', result.get('snippet', ''))
                 url = result.get('href', result.get('link', ''))
-
+                snippet = result.get('body', result.get('snippet', ''))
+                
                 console.print(f"[bold cyan]{i}. {title}[/bold cyan]")
                 console.print(f"[dim]{url}[/dim]")
                 if snippet:
-                    # Truncate snippet
-                    if len(snippet) > 150:
-                        snippet = snippet[:147] + "..."
+                    if len(snippet) > 200:
+                        snippet = snippet[:197] + "..."
                     console.print(f"{snippet}")
                 console.print()
-
-            choice = Prompt.ask("Select result number to open (or press Enter to cancel)", default="")
-
-            if choice.strip():
-                try:
-                    idx = int(choice) - 1
-                    if 0 <= idx < len(results):
-                        url = results[idx].get('href', results[idx].get('link', ''))
-                        if url:
-                            import webbrowser
-                            console.print()
-                            console.print(f"[cyan]Opening: {results[idx].get('title', 'result')}[/cyan]\n")
-                            webbrowser.open(url)
-                        else:
-                            console.print("[red]No URL found for this result.[/red]\n")
-                    else:
-                        console.print("[red]Invalid selection[/red]\n")
-                except ValueError:
-                    console.print("[red]Invalid selection[/red]\n")
     
-    def _search_with_google(self, query: str, max_results: int):
-        """Search using Google Custom Search API."""
+    def _search_with_google_ai(self, query: str, max_results: int):
+        """Search using Google Custom Search API and synthesize with AI."""
         try:
             from google_search import get_google_search_client
             
@@ -1692,80 +1685,8 @@ Request: "{request}"
                 console.print(f"[yellow]No results found for '{query}'[/yellow]\n")
                 return
             
-            console.print(f"[bold cyan]🌐 Web Search Results for: {query}[/bold cyan]")
-            console.print(f"[dim]Powered by Google Custom Search[/dim]\n")
-            
-            # Prepare options for pick library
-            options = []
-            for i, result in enumerate(results, 1):
-                title = result.get('title', 'No title')
-                # Truncate title if too long
-                if len(title) > 80:
-                    title = title[:77] + "..."
-                options.append(f"{title}")
-            
-            # Use pick library for arrow key navigation
-            try:
-                from pick import pick
-                
-                title = "Use ↑/↓ arrows to navigate, Enter to open in browser, Esc to cancel"
-                try:
-                    selected_option, selected_index = pick(options, title, indicator="→")
-                    
-                    if selected_index is not None:
-                        selected_result = results[selected_index]
-                        url = selected_result.get('href', selected_result.get('link', ''))
-                        
-                        if url:
-                            import webbrowser
-                            console.print()
-                            console.print(f"[cyan]Opening: {selected_result.get('title', 'result')}[/cyan]")
-                            console.print(f"[dim]{url}[/dim]\n")
-                            webbrowser.open(url)
-                        else:
-                            console.print("[red]No URL found for this result.[/red]\n")
-                except (KeyboardInterrupt, EOFError):
-                    # User pressed Esc or Ctrl+C to cancel
-                    console.print("\n[dim]Cancelled.[/dim]\n")
-                    return
-            
-            except ImportError:
-                # Fallback: numbered list
-                console.print("[yellow]Install 'pick' for arrow key navigation: pip install pick[/yellow]")
-                console.print("[dim]Using numbered selection instead...[/dim]\n")
-                
-                for i, result in enumerate(results, 1):
-                    title = result.get('title', 'No title')
-                    snippet = result.get('body', result.get('snippet', ''))
-                    url = result.get('href', result.get('link', ''))
-                    
-                    console.print(f"[bold cyan]{i}. {title}[/bold cyan]")
-                    console.print(f"[dim]{url}[/dim]")
-                    if snippet:
-                        # Truncate snippet
-                        if len(snippet) > 150:
-                            snippet = snippet[:147] + "..."
-                        console.print(f"{snippet}")
-                    console.print()
-                
-                choice = Prompt.ask("Select result number to open (or press Enter to cancel)", default="")
-                
-                if choice.strip():
-                    try:
-                        idx = int(choice) - 1
-                        if 0 <= idx < len(results):
-                            url = results[idx].get('href', results[idx].get('link', ''))
-                            if url:
-                                import webbrowser
-                                console.print()
-                                console.print(f"[cyan]Opening: {results[idx].get('title', 'result')}[/cyan]\n")
-                                webbrowser.open(url)
-                            else:
-                                console.print("[red]No URL found for this result.[/red]\n")
-                        else:
-                            console.print("[red]Invalid selection[/red]\n")
-                    except ValueError:
-                        console.print("[red]Invalid selection[/red]\n")
+            # Use AI to synthesize the results
+            self._synthesize_search_results(query, results)
         
         except Exception as e:
             error_msg = str(e).lower()
